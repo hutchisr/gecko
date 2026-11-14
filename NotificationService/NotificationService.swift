@@ -7,9 +7,9 @@ import UserNotifications
 /// already sets it). It has ~30s and ~24MB to enrich or — once the filtering
 /// entitlement is granted — suppress the notification.
 ///
-/// Phase 1 scope: prove the extension runs and can reach the shared App Group
-/// database that the main app writes. Phase 2 will connect over XMPP, fetch the
-/// latest message via MAM, OMEMO-decrypt it, and apply per-conversation filters.
+/// It runs the Swift core in its notification mode (`NSEFetcher`) against the
+/// App Group store the app writes: signs in, catches up on the archives,
+/// decrypts and stores, then applies the conversation's notify setting.
 @objc(NotificationService)
 class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
