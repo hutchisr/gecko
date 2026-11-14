@@ -26,6 +26,8 @@
 	<string>public.app-category.social-networking</string>
 	<key>MinimumOSVersion</key>
 	<string>26.0</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Gecko uses the camera only for video calls.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Gecko uses the microphone for voice calls.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
