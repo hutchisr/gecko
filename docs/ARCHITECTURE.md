@@ -218,6 +218,20 @@ width-limited, safe-area-centered login panel, address-to-password Return-key
 focus, credential-dependent button availability, and large-text scrolling on
 iOS. The tests do not submit credentials or exercise server authentication.
 
+Website screenshots come from `DINO_UI_TEST_FIXTURE=showcase`: invented
+contacts, a group chat and a CC0 lake photo from Wikimedia Commons (the script
+downloads it once into `build/shots/`), with times anchored to 9:41.
+`scripts/screenshots.sh [ios|mac|all]` builds Debug, opens the list (iPhone
+only), a one-to-one chat and the group (`DINO_UI_TEST_OPEN_JID`) in light and
+dark, and writes `build/screenshots/{ios,mac}/`. The iPhone run uses the
+Simulator named "Gecko Shots iPhone" with an overridden status bar. The Mac run
+starts a second instance beside any installed Gecko, briefly switches the system
+to dark mode (Catalyst ignores a per-app override) and restores it, and needs
+Screen Recording and Accessibility for the terminal. Mac shots are 2560×1600
+(a 1280×800 window), a Mac App Store size. For iPhone App Store sizes, point
+`GECKO_SHOTS_SIM` at an "iPhone 17" Simulator (1206×2622) and set
+`GECKO_SHOTS_OUT` to keep them apart from the website set.
+
 Composer tests establish a post-keyboard baseline, then check each inserted
 character and backspace across soft wraps and explicit line breaks. The image
 test measures the actual preview button, not an inherited row identifier.
