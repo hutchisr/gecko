@@ -98,4 +98,4 @@ change to reflect any revisions.
 
 ## Contact
 
-Questions about this policy: `<your-contact-email>`
+Questions about this policy: [contact@yamoriholdings.com](mailto:contact@yamoriholdings.com)
