@@ -6,11 +6,9 @@ Gecko is an XMPP messaging app for iOS and Apple Silicon macOS, written in
 Swift and SwiftUI. It supports OMEMO encryption, group chats, file transfers,
 push notifications, voice calls and more.
 
-Gecko started as a fork of [Dino](https://dino.im), the Vala/GTK XMPP client
-for Linux, keeping Dino's core under a SwiftUI front end. That core has since
-been replaced by Gecko's own XMPP core in Swift; OMEMO uses libomemo-c. On
-first launch, Gecko imports the history, keys and passwords of a Dino-based
-Gecko install. iPhone and Mac Catalyst share one SwiftUI application.
+On first launch after an update from an older Gecko version, Gecko brings its
+history, keys and passwords across. iPhone and Mac Catalyst share one SwiftUI
+application.
 
 Status
 ------
@@ -89,33 +87,17 @@ Resources
 ---------
 - [`ios/PORTING.md`](ios/PORTING.md) — how Gecko is built and tested: layout,
   calls, push and the notification extension, the live two-account script.
-- [`ios/MIGRATION.md`](ios/MIGRATION.md) — how the Dino core was replaced.
+- [`ios/MIGRATION.md`](ios/MIGRATION.md) — how Gecko's XMPP core came to be.
 - [`AGENTS.md`](AGENTS.md) — orientation for working in this repository.
 - [`ios/PRIVACY.md`](ios/PRIVACY.md), [`ios/app/TESTFLIGHT.md`](ios/app/TESTFLIGHT.md) — privacy and release notes.
-- Upstream: the [Dino website](https://dino.im), its
-  [wiki](https://github.com/dino/dino/wiki), and the `chat@dino.im` XMPP channel.
 
 License
 -------
-    Gecko - XMPP messaging app for Apple platforms
-    Copyright (C) 2026 Gecko contributors
+Gecko's source code is released under the [MIT License](LICENSE).
 
-    Based on Dino - XMPP messaging app using GTK/Vala
-    Copyright (C) 2016-2025 Dino contributors
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-The standalone push proxy in [`ios/push-proxy/`](ios/push-proxy/) is separately
-licensed under the [MIT License](ios/push-proxy/LICENSE). Its dependencies retain
-their respective licenses.
+Gecko links [libomemo-c](https://github.com/dino/libomemo-c) for OMEMO
+encryption, which is licensed under the GPL-3.0. Builds of the app that include
+it, such as TestFlight and App Store builds, are therefore distributed under
+the terms of the GPL-3.0 as a whole; the MIT-licensed source stays MIT. The
+other bundled libraries keep their own licenses: GRDB (MIT), protobuf-c
+(BSD-2-Clause) and WebRTC (BSD-3-Clause).

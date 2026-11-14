@@ -12,8 +12,9 @@ Meson and the GLib stack are gone (`ios/MIGRATION.md` has the history). What
 remains of Dino is `DinoImport`, which moves a Dino-based install's data into
 the Swift store on first launch. `README.md` is the user-facing intro.
 
-License: **GPL-3.0** (`LICENSE`). The app links libomemo-c (GPL), which keeps
-it GPL; see the licensing memory. `ios/push-proxy/` is separately MIT.
+License: the source is **MIT** (`LICENSE`). The app links libomemo-c
+(GPL-3.0), so builds that include it are distributed under the GPL-3.0 as a
+whole; keep new code MIT and dependencies GPL-compatible.
 
 The longer reference is **[`ios/PORTING.md`](ios/PORTING.md)**: layout,
 calls, push and the notification extension, the live test script, UI notes.

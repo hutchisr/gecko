@@ -143,5 +143,5 @@ Open/reconnect Gecko after a proxy restart to repopulate notification filters.
 ## License
 
 The repository-owned code and documentation in `ios/push-proxy/` are licensed
-under the [MIT License](LICENSE), independently of Gecko's root GPL license.
+under the [MIT License](LICENSE), like the rest of Gecko's source.
 Third-party dependencies retain their own licenses; MIT does not relicense them.
