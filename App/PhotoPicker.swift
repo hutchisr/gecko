@@ -11,9 +11,11 @@ final class AttachmentSelectionPipeline: ObservableObject {
     @Published private(set) var isStaging = false
     // Catalyst's Finder bridge advertises file content plus this marker, not
     // public.file-url. The marker distinguishes text files from dragged text.
-    // Screenshot previews can supply an image without either file marker.
+    // Screenshot previews can supply an image, and Photos a video or audio,
+    // without either file marker.
     static let fileDropTypeIdentifiers = [
         UTType.fileURL.identifier, "com.apple.finder.node", UTType.image.identifier,
+        UTType.audiovisualContent.identifier,
     ]
 
     private final class CancellationToken: @unchecked Sendable {
