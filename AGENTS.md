@@ -64,7 +64,6 @@ This file is the shorter "how to work here" companion.
 |`ios/nse/`|Notification Service Extension (`NotificationService.swift`, `NSEFetcher.swift`).|
 |`ios/live-test/`|Live two-account check against xmpp.is (`run.sh`).|
 |`ios/push-proxy/`|Standalone MIT-licensed Rust XEP-0357 → APNs proxy, containerized for k8s namespace `gecko`. Run `cargo test --locked` in that directory.|
-|`ios/udid-enroll/`, `ios/dist-host/`|Ad-hoc device enrollment + IPA distribution host (containerized).|
 
 ## Build, run, test
 
