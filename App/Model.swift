@@ -2185,7 +2185,8 @@ final class AppModel: ObservableObject {
                 self.setEncryption(conv.id, omemo: omemo != "0")
             }
             if let text = env["DINO_AUTOSEND"] {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                let delay = env["DINO_AUTOSENDDELAY"].flatMap(Double.init) ?? 4
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                     self.send(conv.id, text)
                 }
             }

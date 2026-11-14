@@ -134,7 +134,7 @@ recovery, not a reproduction or conclusive diagnosis of the long-idle failure.
 
 The app supports headless automation for testing via environment variables
 (set through `SIMCTL_CHILD_*`): `DINO_AUTOLOGIN=jid:password`,
-`DINO_AUTOPEER=jid` (opens a chat), `DINO_AUTOSEND=text`,
+`DINO_AUTOPEER=jid` (opens a chat), `DINO_AUTOSEND=text` (`DINO_AUTOSENDDELAY=s`: when),
 `DINO_AUTOSENDFILE=1` (generated PNG) or `DINO_AUTOSENDFILE=svg`,
 `DINO_AUTOOMEMO=1` (enable encryption before sending; `0` turns it off),
 `DINO_AUTOACCEPT=jid` (accept that contact's request when it arrives),

@@ -651,6 +651,75 @@ async def other_devices(peer: Peer, app_jid: str, peer_jid: str) -> None:
         laptop.disconnect()
 
 
+def carbon_copy(message: Message) -> Optional[Message]:
+    """The message inside a carbon (XEP-0280), if this is one."""
+    inner = message.xml.find("{urn:xmpp:carbons:2}sent/{urn:xmpp:forward:0}forwarded/{jabber:client}message")
+    return None if inner is None else Message(xml=inner)
+
+
+async def new_device(peer: Peer, app_jid: str, peer_jid: str) -> None:
+    """A device of ours that comes online while Gecko is connected (OMEMO):
+    Gecko encrypts for it from then on, and shows what it sends as ours."""
+    out, elsewhere = f"to-new-device-{secrets.token_hex(3)}", f"from-new-device-{secrets.token_hex(3)}"
+    password = credentials()["PASSWORD"]
+    async with App({"DINO_AUTOPEER": peer_jid, "DINO_AUTOOMEMO": "1", "DINO_AUTOSEND": out,
+                    "DINO_AUTOSENDDELAY": "40"}) as app:
+        await until("Gecko online", lambda: app.find(type="connection", state="CONNECTED"))
+        await asyncio.sleep(6)
+        laptop = Peer(app_jid, password)
+        for plugin in ("xep_0060", "xep_0280", "xep_0380"):
+            laptop.register_plugin(plugin)
+        laptop.register_plugin("xep_0384", {"json_file_path": str(STATE / "laptop-omemo.json")},
+                               module=sys.modules[__name__])
+        laptop.connect()
+        try:
+            await asyncio.wait_for(laptop.ready.wait(), 30)
+            await laptop.plugin["xep_0280"].enable()
+            omemo: XEP_0384 = laptop.plugin["xep_0384"]
+            own, _ = await (await omemo.get_session_manager()).get_own_device_information()
+            # Its device is published now; Gecko sends 40s after opening the chat.
+            copy = await until("Gecko's message, copied to the new device", lambda: next(
+                (c for c in map(carbon_copy, laptop.messages) if c is not None and omemo.is_encrypted(c)), None),
+                timeout=90)
+            try:
+                decrypted, _ = await omemo.decrypt_message(copy)
+            except Exception as error:
+                raise AssertionError(f"the new device can't read Gecko's message: {error}") from error
+            assert decrypted["body"] == out, f"decrypted {decrypted['body']!r}, sent {out!r}"
+
+            message = laptop.make_message(mto=JID(peer_jid), mtype="chat")
+            message["body"] = elsewhere
+            encrypted, _ = await omemo.encrypt_message(message, {JID(peer_jid)})
+            encrypted.send()
+            await until("the new device's message in Gecko, as ours",
+                        lambda: app.find(type="message", direction="out", body=elsewhere, jid=peer_jid), timeout=60)
+        finally:
+            laptop.disconnect()
+            # Gone again, so the next run's device is new to Gecko too.
+            await asyncio.sleep(2)
+            await drop_device(app_jid, password, own.device_id)
+
+
+async def drop_device(jid: str, password: str, device: int) -> None:
+    """Removes an OMEMO device from `jid`'s published list."""
+    import xml.etree.ElementTree as ET
+    ns = "eu.siacs.conversations.axolotl"
+    client = Peer(jid, password)
+    client.register_plugin("xep_0060")
+    client.connect()
+    await asyncio.wait_for(client.ready.wait(), 30)
+    try:
+        pubsub = client.plugin["xep_0060"]
+        reply = await pubsub.get_items(jid, f"{ns}.devicelist", timeout=20)
+        payload = ET.Element(f"{{{ns}}}list")
+        for entry in reply.xml.iter(f"{{{ns}}}device"):
+            if int(entry.get("id")) != device:
+                ET.SubElement(payload, f"{{{ns}}}device", {"id": entry.get("id")})
+        await pubsub.publish(jid, f"{ns}.devicelist", id="current", payload=payload, timeout=20)
+    finally:
+        client.disconnect()
+
+
 async def profile(peer: Peer, app_jid: str, peer_jid: str) -> None:
     """Avatars, blocking, and a password change (to the same password)."""
     import base64
@@ -709,6 +778,7 @@ STEPS = {
     "files": files,
     "message-extras": message_extras,
     "other-devices": other_devices,
+    "new-device": new_device,
     "profile": profile,
     "status": status,
     "omemo-messages": omemo_messages,

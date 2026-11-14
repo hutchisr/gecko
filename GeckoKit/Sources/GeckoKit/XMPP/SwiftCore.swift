@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import GRDB
 import UniformTypeIdentifiers
@@ -424,7 +425,7 @@ final class SwiftCore {
         var children: [StanzaNode] = []
         if ["away", "chat", "dnd", "xa"].contains(show) { children.append(StanzaNode("show", XMPPNS.client, text: show)) }
         if !status.isEmpty { children.append(StanzaNode("status", XMPPNS.client, text: status)) }
-        return StanzaNode("presence", XMPPNS.client, [:], children)
+        return StanzaNode("presence", XMPPNS.client, [:], children + [Disco.caps])
     }
 
     func requestAccountDetails() {
@@ -1278,6 +1279,12 @@ final class SwiftCore {
     }
 
     private func message(_ node: StanzaNode, account: String, client: XMPPClient) {
+        // A device list we follow (ours or a contact's) changed: a PEP event,
+        // not a chat message.
+        if let devices = OMEMOStanzas.devices(node) {
+            omemo[account]?.devicesChanged(JID.bare(node["from"] ?? account), devices)
+            return
+        }
         if let call = Self.callMessage(node, account: account) { forwardStanza(call, account: account) }
         if rooms.invitation(node, account: account) || rooms.message(node, account: account) { return }
         guard let m = ChatStanza.parse(node, me: account), m.type == "chat" || m.type == "normal" else { return }
@@ -1331,9 +1338,6 @@ final class SwiftCore {
                 emitItem(target["id"])
             }
             return
-        }
-        if let devices = OMEMOStanzas.devices(node), let from = node["from"] {
-            omemo[account]?.devicesChanged(JID.bare(from), devices)
         }
         var body = m.body
         if let encrypted = m.omemo {
@@ -1451,14 +1455,32 @@ final class SwiftCore {
 enum Disco {
     static let info = "http://jabber.org/protocol/disco#info"
 
+    static let identity = (category: "client", type: "phone", name: "Gecko")
+
+    /// `+notify`: the server sends us changes to these PEP nodes as they happen.
     static let features = [info, ChatNS.receipts, XMPPNS.ping, ChatNS.chatStates, ChatNS.markers,
-                           ChatNS.correction, ChatNS.reply, ChatNS.reactions, CallNS.jmi] + CallNS.features
+                           ChatNS.correction, ChatNS.reply, ChatNS.reactions, CallNS.jmi,
+                           "\(OMEMOStanzas.deviceList)+notify"] + CallNS.features
+
+    /// Entity capabilities (XEP-0115) for our presence: how the server learns
+    /// our features, `+notify` ones included.
+    static let caps = StanzaNode("c", "http://jabber.org/protocol/caps",
+                                 ["hash": "sha-1", "node": "https://github.com/hutchisr/gecko",
+                                  "ver": ver(identity: "\(identity.category)/\(identity.type)//\(identity.name)",
+                                             features: features)])
+
+    /// The verification string's hash (XEP-0115 §5.1), for one identity.
+    static func ver(identity: String, features: [String]) -> String {
+        let string = identity + "<" + Set(features).sorted().map { $0 + "<" }.joined()
+        return Data(Insecure.SHA1.hash(data: Data(string.utf8))).base64EncodedString()
+    }
 
     static func ours(node: String?) -> StanzaNode {
         var attributes = [String: String]()
         attributes["node"] = node
         return StanzaNode("query", info, attributes,
-                          [StanzaNode("identity", info, ["category": "client", "type": "phone", "name": "Gecko"])]
+                          [StanzaNode("identity", info, ["category": identity.category, "type": identity.type,
+                                                         "name": identity.name])]
                           + features.map { StanzaNode("feature", info, ["var": $0]) })
     }
 }

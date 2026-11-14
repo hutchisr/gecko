@@ -63,4 +63,13 @@ final class OMEMOStanzasTests: XCTestCase {
         ])])
         XCTAssertEqual(OMEMOStanzas.devices(event), [7, 42])
     }
+
+    // A wrong hash makes the server ignore our features, `+notify` included,
+    // and we never hear of a new device. XEP-0115 §5.2's example.
+    func testCapsVerificationString() {
+        XCTAssertEqual(Disco.ver(identity: "client/pc//Exodus 0.9.1", features: [
+            "http://jabber.org/protocol/muc", "http://jabber.org/protocol/disco#info",
+            "http://jabber.org/protocol/caps", "http://jabber.org/protocol/disco#items",
+        ]), "QgayPKawpkPSDYmwT/WM94uAlu0=")
+    }
 }
