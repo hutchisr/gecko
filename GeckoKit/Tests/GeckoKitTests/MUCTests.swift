@@ -73,4 +73,34 @@ final class MUCTests: XCTestCase {
         XCTAssertEqual(publish.child("pubsub", AvatarNS.pubsub)?.child("publish-options", AvatarNS.pubsub)?.xml
             .contains("whitelist"), true, "bookmarks stay private")
     }
+
+    /// An OMEMO room message under our nick that this device did not send
+    /// came from another of our devices: opened with our account's sessions.
+    @MainActor
+    func testOpensOurOtherDevicesEncryptedRoomMessages() throws {
+        let store = try GeckoStore(path: nil)
+        try store.addAccount("me@example.org", resource: "gecko")
+        let rooms = RoomCoordinator(store: store, emit: { _ in }, changed: { _, _ in })
+        rooms.join("me@example.org", "room@muc.example.org", nick: "me", password: nil)
+        var askedFor: [String] = []
+        rooms.decrypt = { _, sender, _ in
+            askedFor.append(sender)
+            return "from my phone"
+        }
+        let message = parse("""
+            <message xmlns='jabber:client' from='room@muc.example.org/me' type='groupchat' id='phone-1'>
+              <encrypted xmlns='eu.siacs.conversations.axolotl'/><body>fallback</body></message>
+            """)
+        XCTAssertTrue(rooms.message(message, account: "me@example.org"))
+        XCTAssertEqual(askedFor, ["me@example.org"])
+        let conversation = try XCTUnwrap(store.existingConversation(account: "me@example.org", jid: "room@muc.example.org",
+                                                                    kind: "groupchat"))
+        let stored = try XCTUnwrap(store.message(conversation, originID: "phone-1", sender: "me@example.org"))
+        XCTAssertEqual(stored["body"] as String?, "from my phone")
+        XCTAssertEqual(stored["direction"] as String, "out")
+
+        // The room reflecting it again (or this device's own message) is not opened twice.
+        XCTAssertTrue(rooms.message(message, account: "me@example.org"))
+        XCTAssertEqual(askedFor.count, 1)
+    }
 }

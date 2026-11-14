@@ -392,9 +392,11 @@ final class RoomCoordinator {
         }
         var body = m.body
         if let encrypted = m.omemo {
-            // Only members' real JIDs have sessions; a copy of ours we cannot open.
+            // Only members' real JIDs have sessions. Ours here is a copy from
+            // another of our devices (this device's own was matched above),
+            // encrypted for us like any member's.
             if let known = m.serverID, (try? store.message(room.conversation, originID: known)) != nil { return true }
-            guard !ours, let real = room.occupants[nick]?.realJID,
+            guard let real = ours ? room.account : room.occupants[nick]?.realJID,
                   let text = decrypt?(encrypted, real, !m.archived) else { return true }
             body = text
         }
