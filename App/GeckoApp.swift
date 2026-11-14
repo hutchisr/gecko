@@ -1970,11 +1970,15 @@ struct ChatView: View {
         if let typingText = model.typingIndicatorText(for: conversationId) {
             HStack {
                 Spacer(minLength: 0)
+                // On glass, the text's color adapts to what scrolls behind it.
                 Text(typingText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .padding(.horizontal, 8)
+                    .frame(maxHeight: .infinity)
+                    .glassEffect(.clear, in: Capsule())
                     .frame(maxWidth: 260, alignment: .trailing)
             }
             .padding(.leading, composerHorizontalPadding)
@@ -1985,12 +1989,6 @@ struct ChatView: View {
                 composerHorizontalPadding
                     + (!isAtBottom && keyboardOverlap > 0 ? floatingButtonSize + floatingOverlaySpacing : 0))
             .frame(height: typingIndicatorHeight)
-            .background {
-                LinearGradient(
-                    colors: [.clear, Color(.systemBackground).opacity(0.9)],
-                    startPoint: .top,
-                    endPoint: .bottom)
-            }
             .padding(.bottom, typingIndicatorBottomPadding)
             .allowsHitTesting(false)
             .transition(.opacity)
