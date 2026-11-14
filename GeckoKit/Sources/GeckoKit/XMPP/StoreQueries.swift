@@ -73,6 +73,14 @@ extension GeckoStore {
         }
     }
 
+    /// What we call a contact: its roster name, else its address.
+    func contactName(account: String, jid: String) -> String {
+        let name = try? db.read {
+            try String.fetchOne($0, sql: "SELECT name FROM contact WHERE account = ? AND jid = ?", arguments: [account, jid])
+        }
+        return (name ?? nil).flatMap { $0.isEmpty ? nil : $0 } ?? jid
+    }
+
     /// The conversation with `jid`, if there is one; never creates or reopens it.
     func existingConversation(account: String, jid: String, kind: String) throws -> Int64? {
         try db.read { db in

@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
 
@@ -296,6 +297,11 @@ async def group_chat(peer: Peer, app_jid: str, peer_jid: str) -> None:
                 e["type"] == "occupants" and e.get("jid") == room and "peer" in e.get("nicks", []) for e in app.events))
             peer.send_message(mto=room, mbody=said, mtype="groupchat")
             await until("the room message in Gecko", lambda: app.find(type="message", body=said, jid=room))
+            composing = peer.make_message(mto=room, mtype="groupchat")
+            ET.SubElement(composing.xml, "{http://jabber.org/protocol/chatstates}composing")
+            composing.send()
+            await until("the peer typing in the room, by nick", lambda: app.find(
+                type="chat_state", state="composing", jid=room, names=["peer"]))
             await until("Gecko's message in the room", lambda: any(
                 m["type"] == "groupchat" and m["from"].bare == room and m["body"] == answered for m in peer.messages))
         async with App({"DINO_AUTOCLOSE": room}):
@@ -383,7 +389,6 @@ async def room_admin(peer: Peer, app_jid: str, peer_jid: str) -> None:
 
 
 def instant_room_form() -> Any:
-    from xml.etree import ElementTree as ET
     query = ET.Element("{http://jabber.org/protocol/muc#owner}query")
     ET.SubElement(query, "{jabber:x:data}x", {"type": "submit"})
     return query
@@ -454,7 +459,6 @@ def origin_id(message: Message) -> str:
 
 async def peer_message(peer: Peer, to: str, body: str, *extra) -> str:
     """Sends a markable chat message with an origin id; returns that id."""
-    from xml.etree import ElementTree as ET
     msg = peer.make_message(mto=to, mbody=body, mtype="chat")
     origin = secrets.token_hex(6)
     msg["id"] = origin
@@ -468,7 +472,6 @@ async def peer_message(peer: Peer, to: str, body: str, *extra) -> str:
 
 async def message_extras(peer: Peer, app_jid: str, peer_jid: str) -> None:
     """Read markers, reactions, replies and corrections, both ways, and typing."""
-    from xml.etree import ElementTree as ET
     plain = {"DINO_AUTOPEER": peer_jid, "DINO_AUTOOMEMO": "0"}
 
     # Gecko opens the chat: it marks the peer's message displayed, then reacts.
@@ -507,7 +510,9 @@ async def message_extras(peer: Peer, app_jid: str, peer_jid: str) -> None:
         typing = peer.make_message(mto=app_jid, mtype="chat")
         ET.SubElement(typing.xml, "{http://jabber.org/protocol/chatstates}composing")
         typing.send()
-        await until("Gecko to show typing", lambda: app.find(type="chat_state", state="composing", jid=peer_jid))
+        shown = await until("Gecko to show typing",
+                            lambda: app.find(type="chat_state", state="composing", jid=peer_jid))
+        assert shown.get("names"), f"typing without a name: {shown}"
         corrected = f"corrected-{secrets.token_hex(3)}"
         await peer_message(peer, app_jid, corrected, ET.Element(
             "{urn:xmpp:message-correct:0}replace", {"id": target}))
@@ -572,7 +577,6 @@ async def push_fetch(peer: Peer, app_jid: str, peer_jid: str) -> None:
 
 async def push_register(peer: Peer, app_jid: str, peer_jid: str) -> None:
     """Gecko registers with a push service (the peer here) and sends it its filters."""
-    from xml.etree import ElementTree as ET
     seen = len(peer.messages)
     try:
         async with App({"DINO_AUTOPUSH": peer_jid}):
@@ -598,7 +602,6 @@ async def push_register(peer: Peer, app_jid: str, peer_jid: str) -> None:
 
 async def call_signalling(peer: Peer, app_jid: str, peer_jid: str) -> None:
     """A call's signalling both ways (XEP-0353, then Jingle), the peer as callee; no media."""
-    from xml.etree import ElementTree as ET
     jmi, jingle_ns = "urn:xmpp:jingle-message:0", "urn:xmpp:jingle:1"
     seen, seen_iqs = len(peer.messages), len(peer.jingle)
     async with App({"DINO_AUTOCALL": peer_jid}):
@@ -702,7 +705,6 @@ async def new_device(peer: Peer, app_jid: str, peer_jid: str) -> None:
 
 async def drop_device(jid: str, password: str, device: int) -> None:
     """Removes an OMEMO device from `jid`'s published list."""
-    import xml.etree.ElementTree as ET
     ns = "eu.siacs.conversations.axolotl"
     client = Peer(jid, password)
     client.register_plugin("xep_0060")

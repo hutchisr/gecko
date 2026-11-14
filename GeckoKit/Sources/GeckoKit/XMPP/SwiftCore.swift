@@ -1321,7 +1321,10 @@ final class SwiftCore {
             }
         }
         if let state = m.chatState, !m.sentByUs, !m.archived, m.body == nil {
-            emit(["type": "chat_state", "conversation": conversation, "state": state])
+            // A room member writing privately goes by their nick.
+            let name = room ? JID.resource(peer) ?? peer : store.contactName(account: account, jid: peer)
+            emit(["type": "chat_state", "conversation": conversation, "state": state,
+                  "typing_names": state == "composing" ? [name] : []])
         }
         if let replaces = m.replaces {
             // Only the author can correct a message.

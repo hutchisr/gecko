@@ -1980,6 +1980,7 @@ final class AppModel: ObservableObject {
                 out["jid"] = conversations.first { $0.id == Int32(cid) }?.jid
             }
             out["state"] = e["state"]
+            out["names"] = e["typing_names"]
         case "occupants":
             if let cid = e["conversation"] as? Int {
                 out["jid"] = conversations.first { $0.id == Int32(cid) }?.jid

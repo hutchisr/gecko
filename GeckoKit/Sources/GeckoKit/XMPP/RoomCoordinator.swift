@@ -19,6 +19,8 @@ final class RoomCoordinator {
         var joined = false
         var occupants: [String: MUC.Presence] = [:]
         var subject = ""
+        /// Nicks composing a message right now.
+        var typing: Set<String> = []
         var info = MUC.Info()
         /// Joining because the user accepted an invitation.
         var invited = false
@@ -332,6 +334,7 @@ final class RoomCoordinator {
             }
         } else {
             room.occupants[presence.nick] = nil
+            setTyping(room, presence.nick, false)
             if let newNick = presence.newNick, presence.codes.contains(303), isSelf {
                 room.nick = newNick
             } else if isSelf {
@@ -356,6 +359,13 @@ final class RoomCoordinator {
     }
 
     /// A groupchat message (live or from the room's archive); true when handled.
+    private func setTyping(_ room: Room, _ nick: String, _ typing: Bool) {
+        let changed = typing ? room.typing.insert(nick).inserted : room.typing.remove(nick) != nil
+        guard changed else { return }
+        emit(["type": "chat_state", "conversation": room.conversation,
+              "state": room.typing.isEmpty ? "active" : "composing", "typing_names": room.typing.sorted()])
+    }
+
     func message(_ node: StanzaNode, account: String) -> Bool {
         let from = node["from"] ?? ""
         // The room keeps the archive, live ids and results alike.
@@ -370,6 +380,7 @@ final class RoomCoordinator {
         // Ours: our nick here, or (where real JIDs show) our account under
         // another nick, as from our other devices.
         let ours = nick == room.nick || room.occupants[nick]?.realJID.map(JID.bare) == room.account
+        if let state = m.chatState, !ours, !m.archived { setTyping(room, nick, state == "composing") }
         if ours, let originID = m.originID,
            let mine = try? store.message(room.conversation, originID: originID, sender: room.account) {
             // Our own message reflected by the room: now it is delivered.
