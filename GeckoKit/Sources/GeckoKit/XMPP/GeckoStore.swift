@@ -166,6 +166,16 @@ struct GeckoStore {
                 t.primaryKey(["account", "jid"])
             }
         }
+        // Room stanzas used to open empty one-to-one chats with the room's own
+        // address; those duplicates of a room go (only when nothing is in them).
+        migrator.registerMigration("dropRoomAddressChats") { db in
+            try db.execute(sql: """
+                DELETE FROM conversation WHERE kind = 'chat'
+                  AND EXISTS (SELECT 1 FROM conversation r WHERE r.kind = 'groupchat'
+                              AND r.account = conversation.account AND r.jid = conversation.jid)
+                  AND NOT EXISTS (SELECT 1 FROM message m WHERE m.conversation = conversation.id)
+                """)
+        }
         return migrator
     }
 }

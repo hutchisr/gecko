@@ -73,6 +73,14 @@ extension GeckoStore {
         }
     }
 
+    /// The conversation with `jid`, if there is one; never creates or reopens it.
+    func existingConversation(account: String, jid: String, kind: String) throws -> Int64? {
+        try db.read { db in
+            try Int64.fetchOne(db, sql: "SELECT id FROM conversation WHERE account = ? AND jid = ? AND kind = ?",
+                               arguments: [account, jid, kind])
+        }
+    }
+
     func conversationRow(_ id: Int64) throws -> Row? {
         try db.read { try Row.fetchOne($0, sql: "SELECT * FROM conversation WHERE id = ?", arguments: [id]) }
     }

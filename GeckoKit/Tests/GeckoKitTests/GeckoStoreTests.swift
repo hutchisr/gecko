@@ -43,4 +43,25 @@ final class GeckoStoreTests: XCTestCase {
         let reopened = try GeckoStore(path: path)
         XCTAssertEqual(try reopened.db.read { try String.fetchOne($0, sql: "SELECT value FROM setting") }, "v")
     }
+
+    func testUpgradeDropsOnlyEmptyChatsDuplicatingARoom() throws {
+        let db = try DatabaseQueue()
+        try GeckoStore.migrator.migrate(db, upTo: "v1")
+        try db.write { db in
+            try db.execute(sql: """
+                INSERT INTO account (jid, resource) VALUES ('me@x.org', 'r');
+                INSERT INTO conversation (id, account, jid, kind) VALUES
+                    (1, 'me@x.org', 'room@muc.x.org', 'groupchat'),
+                    (2, 'me@x.org', 'room@muc.x.org', 'chat'),
+                    (3, 'me@x.org', 'friend@x.org', 'chat'),
+                    (4, 'me@x.org', 'other@muc.x.org', 'groupchat'),
+                    (5, 'me@x.org', 'other@muc.x.org', 'chat');
+                INSERT INTO message (conversation, direction, sender, body, time, localTime, state)
+                    VALUES (5, 'in', 'other@muc.x.org', 'kept', '2026-01-01 00:00:00', '2026-01-01 00:00:00', 'none');
+                """)
+        }
+        try GeckoStore.migrator.migrate(db)
+        let left = try db.read { try Int64.fetchAll($0, sql: "SELECT id FROM conversation ORDER BY id") }
+        XCTAssertEqual(left, [1, 3, 4, 5], "the empty room-address chat goes; real chats and ones with messages stay")
+    }
 }

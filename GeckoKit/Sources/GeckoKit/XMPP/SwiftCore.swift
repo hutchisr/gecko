@@ -1282,12 +1282,21 @@ final class SwiftCore {
         if rooms.invitation(node, account: account) || rooms.message(node, account: account) { return }
         guard let m = ChatStanza.parse(node, me: account), m.type == "chat" || m.type == "normal" else { return }
         let other = m.sentByUs ? m.to : m.from
+        // A room we have, joined yet or not (the archive is read before joins).
+        let room = rooms.isRoom(other)
+            || ((try? store.existingConversation(account: account, jid: JID.bare(other), kind: "groupchat")) ?? nil) != nil
+        // From the room itself (its notices), not one of its members: never a chat.
+        if room, JID.resource(other) == nil { return }
         // A private message through a room keeps the member's room JID.
-        let viaRoom = rooms.isRoom(other) && JID.resource(other) != nil
-        let peer = viaRoom ? other : JID.bare(other)
-        guard peer != account || !m.sentByUs,
-              let conversation = try? store.conversation(account: account, jid: peer,
-                                                         kind: viaRoom ? "groupchatPrivate" : "chat")
+        let peer = room ? other : JID.bare(other)
+        let kind = room ? "groupchatPrivate" : "chat"
+        guard peer != account || !m.sentByUs else { return }
+        // Only something to show opens a conversation; a chat state, marker or
+        // receipt just updates one that exists.
+        let shows = m.body != nil || m.omemo != nil || m.url != nil
+        guard let conversation = shows
+            ? try? store.conversation(account: account, jid: peer, kind: kind)
+            : (try? store.existingConversation(account: account, jid: peer, kind: kind)) ?? nil
         else { return }
         let sender = m.sentByUs ? account : peer
         if let receipt = m.receiptFor {
