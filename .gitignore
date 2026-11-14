@@ -1,0 +1,31 @@
+*.o
+build/
+Makefile
+.vscode/
+buildServer.json
+*.iml
+.idea
+.sqlite3
+gschemas.compiled
+*.p8
+__pycache__/
+.sbom-tool/
+# SwiftPM build artifacts (GeckoKit test package)
+.build/
+.swiftpm/
+.DS_Store
+
+# Xcode (per Apple's recommended SwiftPM/Xcode gitignore)
+# User-specific xcodestate and scheme management
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# SwiftPM resolved may be committed; keep Package.resolved if you pin versions.
+# (GeckoKit uses SwiftPM; leave Package.resolved tracked unless you want it ignored.)

@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""Self-hosted iOS device UDID enrollment, via Apple's Over-the-Air Profile
+Service protocol — no third party involved.
+
+Flow:
+  1. The tester opens the site in Safari and taps "Install profile".
+  2. /profile returns a `Profile Service` .mobileconfig. On install, iOS
+     gathers the requested device attributes (UDID, model, iOS version, ...),
+     CMS-signs them with Apple's device certificate, and POSTs them to /collect.
+  3. /collect logs the attributes (read them with `kubectl logs`) and shows a
+     confirmation. The temporary profile removes itself afterwards.
+
+The POSTed body is a PKCS#7/CMS signed blob whose payload is the attributes
+plist verbatim, so we slice the inner <?xml ... </plist> out rather than doing
+full CMS parsing. (The UDID is logged regardless of what we return, so capture
+never depends on the device's handling of the response.)
+"""
+import plistlib
+import re
+
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    load_pem_private_key,
+    pkcs7,
+)
+from flask import Flask, Response, request
+from waitress import serve
+
+app = Flask(__name__)
+
+# The domain's TLS cert+key (cert-manager's gecko-enroll-tls secret), mounted
+# read-only. Used to CMS-sign the enrollment profile: iOS rejects an UNSIGNED
+# Profile Service profile as "invalid", and signing with a cert that chains to
+# a trusted root (Let's Encrypt) also shows it as "Verified" on install.
+TLS_CERT = "/tls/tls.crt"
+TLS_KEY = "/tls/tls.key"
+
+
+def sign_profile(xml_bytes: bytes) -> bytes:
+    """CMS/PKCS#7-sign the profile with the domain cert, content attached."""
+    with open(TLS_CERT, "rb") as cert_file:
+        certs = x509.load_pem_x509_certificates(cert_file.read())
+    with open(TLS_KEY, "rb") as key_file:
+        key = load_pem_private_key(key_file.read(), password=None)
+    builder = (
+        pkcs7.PKCS7SignatureBuilder()
+        .set_data(xml_bytes)
+        .add_signer(certs[0], key, hashes.SHA256())
+    )
+    for extra in certs[1:]:  # include the intermediate chain
+        builder = builder.add_certificate(extra)
+    return builder.sign(Encoding.DER, [pkcs7.PKCS7Options.Binary])
+
+# Stable id for the one-shot enrollment profile (any fixed UUID is fine).
+PROFILE_UUID = "7E6B0C2A-1D34-4F90-9A1E-9C0F1E2D3A4B"
+
+# Match a real iOS UDID: modern (e.g. 00008150-000C2D9C2280401C) or legacy
+# 40-hex. Re-validated wherever it's rendered, so only safe chars reach HTML.
+UDID_RE = re.compile(r"(0000[0-9]{4}-00[A-Fa-f0-9]+)|([a-fA-F0-9]{40})")
+
+
+def valid_udid(s):
+    m = UDID_RE.search(s or "")
+    return m.group(0) if m else None
+
+
+PAGE_STYLE = (
+    "body{font-family:-apple-system,system-ui,sans-serif;max-width:34rem;"
+    "margin:3rem auto;padding:0 1.3rem;line-height:1.55;color:#1c1c1e}"
+    "a.btn{display:inline-block;background:#16a34a;color:#fff;padding:.85rem 1.5rem;"
+    "border-radius:13px;text-decoration:none;font-weight:600;margin:1rem 0}"
+    ".muted{color:#8e8e93;font-size:.9rem}code{background:#f2f2f7;padding:.1rem .35rem;border-radius:5px}"
+)
+
+
+@app.get("/")
+def index():
+    return (
+        f"<!doctype html><html><head><meta charset=utf-8>"
+        f"<meta name=viewport content='width=device-width,initial-scale=1'>"
+        f"<title>Gecko device registration</title><style>{PAGE_STYLE}</style></head><body>"
+        "<h2>Register this device for Gecko</h2>"
+        "<p>Tap below and install the profile when prompted. It sends this "
+        "device's identifier (UDID) so it can be added to the Gecko test build, "
+        "then removes itself — nothing stays installed.</p>"
+        "<p><a class=btn href='/profile'>Install registration profile</a></p>"
+        "<p class=muted>Open this page in <b>Safari</b> on the iPhone you want to register, "
+        "then tap Install when prompted.</p>"
+        "</body></html>"
+    )
+
+
+@app.get("/profile")
+def profile():
+    host = request.host  # whatever host the ingress routed (e.g. enroll.anemoneya.me)
+    payload = {
+        "PayloadContent": {
+            "URL": f"https://{host}/collect",
+            "DeviceAttributes": ["UDID", "PRODUCT", "VERSION", "SERIAL", "DEVICE_NAME"],
+        },
+        "PayloadOrganization": "Gecko",
+        "PayloadDisplayName": "Gecko Device Registration",
+        "PayloadDescription": "Sends this device's UDID to register it for the "
+                              "Gecko test build, then removes itself.",
+        "PayloadVersion": 1,
+        "PayloadUUID": PROFILE_UUID,
+        "PayloadIdentifier": "me.anemoneya.gecko.enroll",
+        "PayloadType": "Profile Service",
+    }
+    xml = plistlib.dumps(payload)
+    try:
+        body = sign_profile(xml)
+    except Exception as exc:  # noqa: BLE001 — fall back to unsigned, but log it
+        print(f"profile: signing failed, serving unsigned: {exc!r}", flush=True)
+        body = xml
+    return Response(body, mimetype="application/x-apple-aspen-config")
+
+
+@app.post("/collect")
+def collect():
+    body = request.get_data()
+    info = {}
+    start, end = body.find(b"<?xml"), body.find(b"</plist>")
+    if start != -1 and end != -1:
+        try:
+            info = plistlib.loads(body[start:end + 8])
+        except Exception as exc:  # noqa: BLE001
+            print(f"collect: plist parse error: {exc!r}", flush=True)
+    udid = info.get("UDID", "?")
+    print(
+        f"ENROLL udid={udid} product={info.get('PRODUCT')} "
+        f"version={info.get('VERSION')} serial={info.get('SERIAL')} "
+        f"name={info.get('DEVICE_NAME')}",
+        flush=True,
+    )
+    # Phase 2 of the OTA flow: do NOT return a profile here. Trying to install a
+    # follow-on profile fails iOS's strict validation (empty -> "Invalid
+    # Profile"; cert payload -> "no identity certificate"; etc). The proven
+    # approach (udid.fyi / whatismyudid) is a 301 redirect to a normal web page,
+    # which the device hands off to Safari, ending the flow with no error. Carry
+    # the UDID along so the page can show it to the tester to copy.
+    loc = f"https://{request.host}/done"
+    u = valid_udid(udid)
+    if u:
+        loc += f"?udid={u}"
+    return Response(status=301, headers={"Location": loc})
+
+
+@app.get("/done")
+def done():
+    u = valid_udid(request.args.get("udid", ""))  # re-validated -> safe to render
+    udid_block = (
+        f"<p>Your device UDID:</p>"
+        f"<p><code style='font-size:1.05rem;user-select:all;-webkit-user-select:all'>{u}</code></p>"
+        "<p class=muted>Copy this and send it to whoever invited you.</p>"
+    ) if u else ""
+    return Response(
+        f"<!doctype html><html><head><meta charset=utf-8>"
+        f"<meta name=viewport content='width=device-width,initial-scale=1'>"
+        f"<title>Registered</title><style>{PAGE_STYLE}body{{text-align:center}}</style></head><body>"
+        "<h2>✅ Registered</h2>"
+        "<p>Thanks — your device is registered.</p>"
+        f"{udid_block}"
+        "</body></html>",
+        mimetype="text/html",
+    )
+
+
+if __name__ == "__main__":
+    serve(app, host="0.0.0.0", port=8080)

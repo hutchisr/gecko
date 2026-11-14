@@ -1,0 +1,32 @@
+// Shared Xcode settings for the Gecko app and notification service extension.
+//
+// libomemo-c and GRDB come from ios/build-deps.sh (WebRTC for the app only).
+// Xcode chooses ios/prefix/sim-arm64 or ios/prefix/device-arm64 from the SDK.
+
+DEVELOPMENT_TEAM = 998J34UYP5
+CODE_SIGN_STYLE = Automatic
+MARKETING_VERSION = 0.1
+CURRENT_PROJECT_VERSION = 1
+IPHONEOS_DEPLOYMENT_TARGET = 26.0
+MACOSX_DEPLOYMENT_TARGET = 26.0
+SUPPORTED_PLATFORMS = iphoneos iphonesimulator macosx
+SUPPORTS_MACCATALYST = YES
+SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO
+DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER = NO
+TARGETED_DEVICE_FAMILY = 1
+TARGETED_DEVICE_FAMILY[sdk=macosx*] = 6
+ARCHS = arm64
+SWIFT_VERSION = 5.0
+CLANG_ENABLE_MODULES = YES
+ENABLE_BITCODE = NO
+
+GECKO_CORE_TARGET = device-arm64
+GECKO_CORE_TARGET[sdk=iphonesimulator*] = sim-arm64
+GECKO_CORE_TARGET[sdk=macosx*] = catalyst-arm64
+GECKO_CORE_PREFIX = $(SRCROOT)/ios/prefix/$(GECKO_CORE_TARGET)
+
+HEADER_SEARCH_PATHS = $(inherited) $(GECKO_CORE_PREFIX)/include $(GECKO_CORE_PREFIX)/include/omemo
+// GRDB, built into the prefix by `ios/build-deps.sh <target> grdb`.
+SWIFT_INCLUDE_PATHS = $(inherited) $(GECKO_CORE_PREFIX)/lib/swift $(GECKO_CORE_PREFIX)/include/GRDBSQLite $(SRCROOT)/ios/app/GeckoKit/Sources/COMEMO
+LIBRARY_SEARCH_PATHS = $(inherited) $(GECKO_CORE_PREFIX)/lib
+OTHER_LDFLAGS = $(inherited) -lomemo-c -lprotobuf-c -lGRDB

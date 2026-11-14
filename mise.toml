@@ -1,0 +1,43 @@
+# mise tasks for Gecko, an XMPP client for iOS and Mac.
+#
+#   mise run sim          build + launch in the iOS Simulator
+#   mise run iphone       build, re-sign, install on a connected iPhone
+#   mise run testflight   build, sign, upload iOS to TestFlight (TARGET=catalyst-arm64 for Mac)
+#   mise tasks            list everything
+#
+# First time on a machine (once per target): build the libraries the app links
+# (libomemo-c, protobuf-c, GRDB, WebRTC) —
+#   mise run deps-sim       # Simulator
+#   mise run deps-device    # device / TestFlight
+
+[tasks.sim]
+description = "Build the app and launch it in the iOS Simulator"
+run = "{{config_root}}/ios/app/build-app.sh run sim-arm64"
+
+[tasks.build]
+description = "Build the app for the Simulator (no launch)"
+run = "{{config_root}}/ios/app/build-app.sh build sim-arm64"
+
+[tasks.iphone]
+description = "Build, re-sign, and install on a connected iPhone (default: iPhone 17 Pro)"
+run = "{{config_root}}/ios/app/deploy-phone.sh"
+
+[tasks.testflight]
+description = "Build, sign, and upload to TestFlight (TARGET=device-arm64 or catalyst-arm64)"
+run = """
+# App Store Connect API creds: take them from the environment, else from the
+# gitignored credentials.local.txt. The matching AuthKey_<KeyID>.p8 must be in
+# ~/.appstoreconnect/private_keys/.
+creds="{{config_root}}/credentials.local.txt"
+export ASC_KEY_ID="${ASC_KEY_ID:-$(sed -n 's/^ISSUER_KEY_ID=//p' "$creds" 2>/dev/null)}"
+export ASC_ISSUER_ID="${ASC_ISSUER_ID:-$(sed -n 's/^ISSUER_ID=//p' "$creds" 2>/dev/null)}"
+exec "{{config_root}}/ios/app/deploy-testflight.sh" "${TARGET:-device-arm64}"
+"""
+
+[tasks.deps-sim]
+description = "Cross-compile the dependency stack for the Simulator (run once)"
+run = "{{config_root}}/ios/build-deps.sh sim-arm64"
+
+[tasks.deps-device]
+description = "Cross-compile the dependency stack for device (run once)"
+run = "{{config_root}}/ios/build-deps.sh device-arm64"

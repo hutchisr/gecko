@@ -1,0 +1,5 @@
+module COMEMO [system] {
+    header "shim.h"
+    link "omemo-c"
+    export *
+}
