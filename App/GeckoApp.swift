@@ -1970,15 +1970,13 @@ struct ChatView: View {
         if let typingText = model.typingIndicatorText(for: conversationId) {
             HStack {
                 Spacer(minLength: 0)
-                // On glass, the text's color adapts to what scrolls behind it.
+                // White under a difference blend: the inverse of what is behind it.
                 Text(typingText)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.white)
+                    .blendMode(.difference)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .padding(.horizontal, 8)
-                    .frame(maxHeight: .infinity)
-                    .glassEffect(.clear, in: Capsule())
                     .frame(maxWidth: 260, alignment: .trailing)
             }
             .padding(.leading, composerHorizontalPadding)
