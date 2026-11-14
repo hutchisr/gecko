@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+# Build Gecko.app (SwiftUI app + Swift XMPP core) for iOS or Mac Catalyst,
+# and optionally install and launch it on the selected platform.
+# Usage: ./build-app.sh [run] [sim-arm64|device-arm64|catalyst-arm64]
+set -euo pipefail
+
+ACTION="${1:-build}"
+TARGET="${2:-sim-arm64}"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+PREFIX="$REPO/build/prefix/$TARGET"
+BUILD="$REPO/build/app-$TARGET"
+APP="$BUILD/Gecko.app"
+MIN_IOS=26.0
+case "$TARGET" in
+  sim-arm64)      SDK=iphonesimulator; TRIPLE="arm64-apple-ios${MIN_IOS}-simulator" ;;
+  device-arm64)   SDK=iphoneos;        TRIPLE="arm64-apple-ios${MIN_IOS}" ;;
+  catalyst-arm64) SDK=macosx;          TRIPLE="arm64-apple-ios${MIN_IOS}-macabi" ;;
+  *) echo "unknown target $TARGET" >&2; exit 1 ;;
+esac
+SDKPATH="$(xcrun --sdk "$SDK" --show-sdk-path)"
+WEBRTC="$PREFIX/Frameworks/WebRTC.framework"
+if [ ! -d "$WEBRTC" ]; then
+  echo "error: $WEBRTC is missing; run scripts/build-deps.sh $TARGET webrtc" >&2
+  exit 1
+fi
+if [ "$TARGET" = "catalyst-arm64" ]; then
+  # Mac Catalyst linking depends on Xcode's iOSSupport framework orchestration;
+  # use the canonical project rather than duplicating those private driver flags.
+  DERIVED="$BUILD/DerivedData"
+  mkdir -p "$BUILD"
+  xcodebuild -project "$REPO/Gecko.xcodeproj" -scheme Gecko \
+    -configuration Release \
+    -destination 'platform=macOS,variant=Mac Catalyst' \
+    -derivedDataPath "$DERIVED" CODE_SIGNING_ALLOWED=NO build
+  BUILT_APP="$DERIVED/Build/Products/Release-maccatalyst/Gecko.app"
+  rm -rf "$APP"
+  cp -R "$BUILT_APP" "$APP"
+  # Nested code first: the Xcode embed phase leaves the framework unsigned
+  # when signing is off, and the app signature below has to seal it.
+  codesign --force --sign - "$APP/Contents/Frameworks/WebRTC.framework"
+  if [ -d "$APP/Contents/PlugIns/NotificationService.appex" ]; then
+    codesign --force --sign - "$APP/Contents/PlugIns/NotificationService.appex"
+  fi
+  codesign --force --sign - "$APP"
+  echo "built $APP"
+  if [ "$ACTION" = "run" ]; then
+    open "$APP"
+  fi
+  exit 0
+fi
+
+# Build-metadata Info.plist keys that Xcode injects automatically but raw
+# swiftc does not. The App Store rejects bundles without them (DTPlatformName,
+# the arm64 device capability, etc.); harmless on the simulator / ad-hoc.
+SDK_VER="$(xcrun --sdk "$SDK" --show-sdk-version)"
+SDK_BUILD="$(xcrun --sdk "$SDK" --show-sdk-build-version)"
+XCODE_VER="$(xcodebuild -version | awk 'NR==1{print $2}')"
+XCODE_BUILD="$(xcodebuild -version | awk 'NR==2{print $3}')"
+MACHINE_BUILD="$(sw_vers -buildVersion)"
+DT_XCODE="$(echo "$XCODE_VER" | awk -F. '{printf "%02d%d%d", $1, $2, ($3==""?0:$3)}')"
+APP_SHORT_VER="$(plutil -extract CFBundleShortVersionString raw "$REPO/App/Info.plist")"
+case "$SDK" in
+  iphoneos)        PLATFORM_NAME="iPhoneOS" ;;
+  iphonesimulator) PLATFORM_NAME="iPhoneSimulator" ;;
+  macosx)          PLATFORM_NAME="MacOSX" ;;
+esac
+
+add_build_metadata() {  # $1 = path to an Info.plist inside a built bundle
+  plutil -replace CFBundleSupportedPlatforms -json "[\"$PLATFORM_NAME\"]" "$1"
+  plutil -replace DTPlatformName -string "$SDK" "$1"
+  plutil -replace DTPlatformVersion -string "$SDK_VER" "$1"
+  plutil -replace DTSDKName -string "${SDK}${SDK_VER}" "$1"
+  plutil -replace DTSDKBuild -string "$SDK_BUILD" "$1"
+  plutil -replace DTXcode -string "$DT_XCODE" "$1"
+  plutil -replace DTXcodeBuild -string "$XCODE_BUILD" "$1"
+  plutil -replace DTCompiler -string "com.apple.compilers.llvm.clang.1_0" "$1"
+  plutil -replace BuildMachineOSBuild -string "$MACHINE_BUILD" "$1"
+  plutil -replace UIRequiredDeviceCapabilities -json '["arm64"]' "$1"
+}
+
+# C libraries: libomemo-c (with its protobuf-c) for OMEMO; GRDB and WebRTC below.
+LIBS=(-lomemo-c -lprotobuf-c)
+
+rm -rf "$APP" && mkdir -p "$APP"
+
+# On the simulator, entitlements (aps-environment for APNs) live in a
+# __TEXT,__entitlements section embedded at link time; putting them in the
+# ad-hoc code signature makes AMFI refuse to spawn the binary.
+SIM_ENTS=()
+if [ "$TARGET" = "sim-arm64" ]; then
+  cat > "$BUILD/sim-entitlements.plist" <<'EOF2'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>application-identifier</key>
+	<string>998J34UYP5.me.anemoneya.gecko</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>998J34UYP5</string>
+	<key>aps-environment</key>
+	<string>development</string>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.me.anemoneya.gecko</string>
+	</array>
+	<key>get-task-allow</key>
+	<true/>
+</dict>
+</plist>
+EOF2
+  SIM_ENTS=(-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements -Xlinker "$BUILD/sim-entitlements.plist")
+fi
+
+xcrun -sdk "$SDK" swiftc \
+  -target "$TRIPLE" \
+  -sdk "$SDKPATH" \
+  -Xcc -I"$PREFIX/include" \
+  ${SIM_ENTS[@]+"${SIM_ENTS[@]}"} \
+  "$REPO"/App/*.swift \
+  "$REPO"/GeckoKit/Sources/GeckoKit/*.swift \
+  "$REPO"/GeckoKit/Sources/GeckoKit/XMPP/*.swift \
+  -I "$PREFIX/lib/swift" -I "$PREFIX/include/GRDBSQLite" -lGRDB \
+  -I "$REPO/GeckoKit/Sources/COMEMO" -Xcc -I"$PREFIX/include/omemo" \
+  -L "$PREFIX/lib" \
+  "${LIBS[@]}" \
+  -F "$PREFIX/Frameworks" -framework WebRTC \
+  -Xlinker -rpath -Xlinker @executable_path/Frameworks \
+  -o "$APP/Gecko"
+
+# WebRTC is the one dynamic dependency: embed it where the rpath above points
+# and sign it before the bundles that seal it.
+mkdir -p "$APP/Frameworks"
+cp -R "$WEBRTC" "$APP/Frameworks/"
+codesign --force --sign - "$APP/Frameworks/WebRTC.framework"
+
+cp "$REPO/App/Info.plist" "$APP/Info.plist"
+add_build_metadata "$APP/Info.plist"
+plutil -replace UIDeviceFamily -json '[1]' "$APP/Info.plist"
+
+# App icon: compile an asset catalog so the bundle ships Assets.car and
+# CFBundleIconName. A single 1024px source lets actool rasterize each iOS size.
+if [ -f "$REPO/App/AppIcon.png" ]; then
+  ICONSET="$BUILD/AppIcon.xcassets/AppIcon.appiconset"
+  rm -rf "$BUILD/AppIcon.xcassets"; mkdir -p "$ICONSET"
+  sips -s format png -z 1024 1024 "$REPO/App/AppIcon.png" --out "$ICONSET/icon-1024.png" >/dev/null
+  cat > "$ICONSET/Contents.json" <<'EOF_ICON'
+{
+  "images" : [
+    { "filename" : "icon-1024.png", "idiom" : "universal", "platform" : "ios", "size" : "1024x1024" }
+  ],
+  "info" : { "author" : "xcode", "version" : 1 }
+}
+EOF_ICON
+  actool "$BUILD/AppIcon.xcassets" \
+    --compile "$APP" \
+    --app-icon AppIcon \
+    --platform "$SDK" \
+    --minimum-deployment-target "$MIN_IOS" \
+    --target-device iphone \
+    --output-partial-info-plist "$BUILD/icon-partial.plist" \
+    --output-format human-readable-text >/dev/null
+  /usr/libexec/PlistBuddy -c "Merge $BUILD/icon-partial.plist" "$APP/Info.plist"
+  plutil -replace CFBundleIconName -string AppIcon "$APP/Info.plist"
+fi
+
+# ---- Notification Service Extension ----
+# Decrypts/filters pushes on-device. An app-extension executable has no main()
+# of its own; its entry point is _NSExtensionMain (from Foundation) and the
+# principal class comes from the Info.plist. On the simulator its entitlements
+# (App Group) ride in a __TEXT,__entitlements section just like the host app.
+APPEX="$APP/PlugIns/NotificationService.appex"
+mkdir -p "$APPEX"
+NSE_ENTS=()
+if [ "$TARGET" = "sim-arm64" ]; then
+  cat > "$BUILD/nse-entitlements.plist" <<'EOF3'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>application-identifier</key>
+	<string>998J34UYP5.me.anemoneya.gecko.NotificationService</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>998J34UYP5</string>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.me.anemoneya.gecko</string>
+	</array>
+	<!-- Suppress muted-conversation banners. This is a managed entitlement that
+	     Apple must grant before it works on a real device; the simulator does
+	     not validate entitlements against a provisioning profile, so we can
+	     exercise the suppression path here while the request is pending. -->
+	<key>com.apple.developer.usernotifications.filtering</key>
+	<true/>
+	<key>get-task-allow</key>
+	<true/>
+</dict>
+</plist>
+EOF3
+  NSE_ENTS=(-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements -Xlinker "$BUILD/nse-entitlements.plist")
+fi
+
+xcrun -sdk "$SDK" swiftc \
+  -target "$TRIPLE" \
+  -sdk "$SDKPATH" \
+  -parse-as-library \
+  -module-name NotificationService \
+  -Xcc -I"$PREFIX/include" \
+  -Xlinker -e -Xlinker _NSExtensionMain \
+  ${NSE_ENTS[@]+"${NSE_ENTS[@]}"} \
+  "$REPO"/NotificationService/*.swift \
+  "$REPO"/App/KeychainPasswords.swift \
+  "$REPO"/GeckoKit/Sources/GeckoKit/*.swift \
+  "$REPO"/GeckoKit/Sources/GeckoKit/XMPP/*.swift \
+  -I "$PREFIX/lib/swift" -I "$PREFIX/include/GRDBSQLite" -lGRDB \
+  -I "$REPO/GeckoKit/Sources/COMEMO" -Xcc -I"$PREFIX/include/omemo" \
+  -L "$PREFIX/lib" \
+  "${LIBS[@]}" \
+  -o "$APPEX/NotificationService"
+cp "$REPO/NotificationService/Info.plist" "$APPEX/Info.plist"
+add_build_metadata "$APPEX/Info.plist"
+# The extension's marketing version must match the host app's, or the App Store
+# rejects the upload.
+plutil -replace CFBundleShortVersionString -string "$APP_SHORT_VER" "$APPEX/Info.plist"
+codesign --force --sign - "$APPEX"
+echo "built $APPEX"
+
+# Seal the host bundle last so its signature covers the embedded extension.
+codesign --force --sign - "$APP"
+echo "built $APP"
+
+if [ "$TARGET" = "device-arm64" ]; then
+  # package as an .ipa for (re-)signing and device installation
+  rm -rf "$BUILD/Payload" "$BUILD/Gecko.ipa"
+  mkdir -p "$BUILD/Payload"
+  cp -R "$APP" "$BUILD/Payload/"
+  (cd "$BUILD" && zip -qry Gecko.ipa Payload)
+  echo "built $BUILD/Gecko.ipa"
+fi
+
+if [ "$ACTION" = "run" ] && [ "$TARGET" = "sim-arm64" ]; then
+  xcrun simctl boot "iPhone 17" 2>/dev/null || true
+  open -a Simulator
+  xcrun simctl install booted "$APP"
+  BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")"
+  xcrun simctl launch booted "$BUNDLE_ID"
+fi

@@ -1,0 +1,9 @@
+#include "GeckoCommon.xcconfig"
+
+PRODUCT_NAME = NotificationService
+PRODUCT_BUNDLE_IDENTIFIER = me.anemoneya.gecko.NotificationService
+INFOPLIST_FILE = NotificationService/Info.plist
+CODE_SIGN_ENTITLEMENTS = NotificationService/NotificationService.entitlements
+CODE_SIGN_ENTITLEMENTS[sdk=macosx*] = NotificationService/NotificationServiceCatalyst.entitlements
+APPLICATION_EXTENSION_API_ONLY = YES
+SKIP_INSTALL = YES

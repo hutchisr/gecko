@@ -1,0 +1,2268 @@
+import Foundation
+import UIKit
+import SwiftUI
+
+struct XmppAccount: Identifiable {
+    let id: String   // bare jid
+    var state: String
+}
+
+struct XmppConversation: Identifiable {
+    let id: Int32
+    let jid: String
+    var name: String
+    var encryption: String
+    var encryptionAvailable: Bool = false
+    var kind: String = "chat"
+    var unread: Int = 0
+    var preview: String = ""
+    var previewDirection: String = ""
+    var time: Date = Date(timeIntervalSince1970: 0)
+    var notifyEffective: String = "on"
+
+    var isGroupchat: Bool { kind == "groupchat" }
+}
+
+/// The call shown by `CallView`; `state` uses the signalling state strings.
+struct CallInfo: Identifiable, Equatable {
+    static let terminalStates: Set<String> = ["ended", "declined", "missed", "failed", "other_device"]
+
+    let id: Int32   // call id
+    let conversation: Int32
+    let jid: String
+    let name: String
+    let incoming: Bool
+    var state: String
+    var startedAt: Date?
+
+    var isTerminal: Bool { Self.terminalStates.contains(state) }
+}
+
+/// A pending request to create a group chat the user tried to join but that
+/// doesn't exist yet.
+struct PendingMucCreate: Identifiable {
+    let id = UUID()
+    let jid: String
+    let nick: String?
+}
+
+struct MucInvitation: Identifiable, Equatable {
+    var id: String { account + "\n" + room }
+    let account: String
+    let room: String
+    let inviter: String
+    let password: String?
+    let reason: String?
+    var failureMessage: String?
+}
+
+/// A participant in a group chat.
+struct Occupant: Identifiable {
+    var id: String { jid }
+    let nick: String
+    let jid: String        // full room jid (room@conf/nick), used for the avatar
+    let realJid: String?   // bare real jid, known only in non-anonymous rooms
+    let isSelf: Bool
+    var affiliation: String = "none"  // owner | admin | member | outcast | none
+    var role: String = "none"         // moderator | participant | visitor | none
+
+    var isOwner: Bool { affiliation == "owner" }
+    var isAdmin: Bool { affiliation == "admin" }
+    var isModerator: Bool { role == "moderator" }
+    var hasVoice: Bool { role == "moderator" || role == "participant" }
+    /// A visitor has had voice revoked (or never granted) in a moderated room —
+    /// i.e. they can't send messages.
+    var isMuted: Bool { role == "visitor" }
+
+    /// A short badge label for the row, or nil when there's nothing notable.
+    /// Staff always have voice, so "Muted" only ever applies to members/guests.
+    var badge: String? {
+        switch affiliation {
+        case "owner": return "Owner"
+        case "admin": return "Admin"
+        default:
+            if isModerator { return "Mod" }
+            if isMuted { return "Muted" }
+            return nil
+        }
+    }
+}
+
+/// An affiliated room member who is not currently present in a private room.
+struct OfflineMember: Identifiable {
+    let id: String
+    let name: String
+    let jid: String
+    let affiliation: String
+
+    var badge: String? {
+        switch affiliation {
+        case "owner": return "Owner"
+        case "admin": return "Admin"
+        default: return nil
+        }
+    }
+}
+
+/// Room-wide settings/state for a group chat, fetched on demand.
+struct RoomInfo {
+    var subject: String = ""
+    var isPrivate: Bool = false
+    var isModerated: Bool = false
+    var myAffiliation: String = "none"
+    var myRole: String = "none"
+
+    var iAmOwner: Bool { myAffiliation == "owner" }
+    var canEditSubject: Bool {
+        // Moderators (and owners/admins, who hold the role) can set the subject;
+        // many open rooms also let participants. Show it for anyone with voice.
+        myRole == "moderator" || myAffiliation == "owner" || myAffiliation == "admin"
+    }
+}
+
+struct RosterContact: Identifiable {
+    let id: String   // bare jid
+    var name: String
+    var subscription: String
+    var show: String
+
+    var displayName: String { name.isEmpty ? id : name }
+    var online: Bool { show != "offline" }
+}
+
+struct Reaction: Equatable {
+    let emoji: String
+    let count: Int
+    let me: Bool
+}
+
+struct QuoteRef: Equatable {
+    let item: Int32
+    let from: String
+    let body: String
+}
+
+struct ChatMessage: Identifiable, Equatable {
+    let id: Int32    // content item id
+    let content: String  // "text" or "file"
+    let direction: String
+    let from: String
+    var fromDisplay: String = ""
+    let body: String
+    var mentioned: Bool = false
+    let time: Date
+    let encryption: String
+    var fileName: String = ""
+    var mime: String = ""
+    var size: Int = 0
+    var fileState: String = ""
+    var downloadFailureUntil: Date?
+    var path: String = ""
+    var editable: Bool = false
+    var reactions: [Reaction] = []
+    var marked: String = "none"
+    var quote: QuoteRef? = nil
+
+    var isFile: Bool { content == "file" }
+    var canDownloadFile: Bool {
+        isFile && path.isEmpty && (fileState == "not_started" || fileState == "failed")
+    }
+
+    var fileTransferOperation: FileTransferOperation {
+        direction == "out" && !path.isEmpty ? .upload : .download
+    }
+    var isImage: Bool {
+        // iOS has no shared-mime-info database, so GIO often reports
+        // application/octet-stream; MediaFileKind falls back to the extension.
+        mime.hasPrefix("image/") || MediaFileKind.isImage(fileName: fileName)
+    }
+
+    var isVideo: Bool {
+        mime.hasPrefix("video/") || MediaFileKind.isVideo(fileName: fileName)
+    }
+
+    var isAudio: Bool {
+        MediaFileKind.isAudio(fileName: fileName, mime: mime)
+    }
+}
+
+struct FileTransportPreview: Equatable {
+    enum Transport: String {
+        case http, jingle, none
+    }
+
+    let requestID: String
+    let path: String
+    var transport: Transport?
+    var message: String?
+    var isChecking: Bool { transport == nil }
+}
+
+@MainActor
+final class AppModel: ObservableObject {
+    @Published var ready = false
+    @Published var accounts: [XmppAccount] = []
+    @Published var conversations: [XmppConversation] = [] {
+        didSet {
+            AppIconBadge.setUnreadCount(
+                unreadBadgeCount(conversations.lazy.map(\.unread))
+            )
+        }
+    }
+    @Published var messages: [Int32: [ChatMessage]] = [:]
+    @Published var lastError: String?
+    @Published var navigation: [Int32] = [] {
+        didSet {
+            if navigation.last != oldValue.last {
+                fileTransportPreviews = [:]
+                fileTransportCompletions = [:]
+                discardLiveOnlyCache(for: navigation.last)
+            }
+            reconcileConversationFocus()
+        }
+    }
+
+    /// Live arrivals are cached even for chats that have not been opened yet
+    /// (the Mac notification de-duplication reads them). A chat must not first
+    /// render that partial list: the message list would do its initial
+    /// positioning on one or two rows, and the real page — same newest ID, so
+    /// no follow-up scroll — would then land above them. Drop it before the
+    /// chat appears; `openConversation` loads the authoritative page.
+    /// ponytail: a live message landing between this and the first history
+    /// reply (~50 ms) can still seed one row; hide rows while
+    /// `replacingMessageHistory` holds the chat if that ever shows up.
+    private func discardLiveOnlyCache(for id: Int32?) {
+        guard let id, !isUITestFixture,
+              historyPagination[id] == nil, messages[id] != nil else { return }
+        messages[id] = nil
+        messageRevisions[id, default: 0] &+= 1
+    }
+    @Published var roster: [RosterContact] = []
+    @Published var subscriptionRequests: [String] = []
+    @Published var avatars: [String: String] = [:]      // bare jid -> file path
+    @Published var chatStates: [Int32: String] = [:]    // conversation id -> XEP-0085 state
+    @Published var typingNames: [Int32: [String]] = [:]
+    @Published var occupants: [Int32: [Occupant]] = [:]
+    @Published var offlineMembers: [Int32: [OfflineMember]] = [:]
+    @Published var roomInfo: [Int32: RoomInfo] = [:]
+    @Published var selfShow = "online"     // online | away | dnd | xa
+    @Published var selfStatus = ""
+    @Published var blockedContacts: [String] = []
+    @Published var blockingSupported = false
+    @Published var sendTyping = true
+    @Published var sendMarker = true
+    @Published var viewerRequest: String?   // used by UI automation to open the image viewer
+    @Published var mediaViewerItem: MediaViewerItem?
+    @Published var accountAlias: String = ""
+    @Published var omemoDeviceId: Int = 0
+    @Published var omemoFingerprint: String = ""
+    @Published var passwordChanged = false
+    /// Set when a join targeted a room that doesn't exist yet; the UI asks the
+    /// user to confirm creating it.
+    @Published var pendingMucCreate: PendingMucCreate?
+    @Published var pendingMucInvite: MucInvitation?
+    @Published var newMessagePresented = false
+    @Published var accountSettingsPresented = false
+    @Published var activeCall: CallInfo?
+    @Published var callMuted = false
+    @Published var callSpeaker = false
+    @Published var callError: String?
+    @Published private(set) var isUITestFixture = false
+    @Published private(set) var uiTestImageSettled = false
+    @Published private(set) var fileTransportPreviews: [Int32: FileTransportPreview] = [:]
+    private var fileTransportCompletions: [Int32: (FileTransportPreview) -> Void] = [:]
+
+    private var directChatRoute = DirectChatRouteState()
+    private var queuedMucInvites: [MucInvitation] = []
+    private var acceptingMucInvite: MucInvitation?
+    private var autoMucInviteFailure: (conversation: Int32, invitee: String)?
+    private var requestedAvatars = Set<String>()
+    let callEngine = CallEngine()
+    private(set) lazy var callSignaling: CallSignaling = {
+        let signaling = CallSignaling(media: callEngine)
+        callEngine.events = signaling
+        callEngine.onError = { [weak self] message in self?.callError = message }
+        signaling.onCall = { [weak self] call in self?.receiveCall(call) }
+        signaling.onError = { [weak self] message in self?.callError = message }
+        signaling.conversation = { [weak self] id in
+            guard let self, let account = self.accounts.first?.id,
+                  let chat = self.conversations.first(where: { $0.id == id && !$0.isGroupchat })
+            else { return nil }
+            return (account, chat.jid, chat.name)
+        }
+        signaling.conversationFor = { [weak self] jid in
+            self?.conversations.first { $0.jid == jid && !$0.isGroupchat }.map { ($0.id, $0.name) }
+        }
+        return signaling
+    }()
+#if DEBUG
+    private var uiTestRoomMembersFixture = false
+    private var uiTestFileTransportRequestCount = 0
+    private var uiTestMucInviteFailurePending = false
+    private var uiTestHistoryItems: [[String: Any]] = []
+#endif
+    private let messagePageSize: Int32 = 50
+    @Published private var historyPagination: [Int32: HistoryPagination] = [:]
+    private var replacingMessageHistory = Set<Int32>()
+    private var pendingOlderMessages: [Int32: [ChatMessage]] = [:]
+#if targetEnvironment(macCatalyst)
+    private var groupHistoryRetry: Task<Void, Never>?
+    private var mediaViewerWindowRequested = false
+#endif
+    private var messageRevisions: [Int32: Int] = [:]
+    private var messageUpdateWasSynced: [Int32: Bool] = [:]
+    @Published private var historyPageRevisions: [Int32: Int] = [:]
+    @Published private var historyPageRenderedRowsAdded: [Int32: Bool] = [:]
+    private var avatarRevision = 0
+    private let fileTransferProgressStore = FileTransferProgressStore()
+
+    private var booted = false
+    private var applicationIsActive = false
+    private var uiTestClearsUnreadOnFocus = false
+    private var uiTestDelaysDirectRouteAction = false
+    private var conversationFocus = ConversationFocusState()
+
+    var hasAccount: Bool { !accounts.isEmpty }
+    var avatarRevisionToken: Int { avatarRevision }
+
+#if targetEnvironment(macCatalyst)
+    /// Updates the single media window's content and reports whether its scene
+    /// still needs to be created. Repeated activations before scene delivery
+    /// therefore cannot create parallel preview windows.
+    func presentMediaViewerWindow(_ item: MediaViewerItem) -> Bool {
+        mediaViewerItem = item
+        guard !mediaViewerWindowRequested else { return false }
+        mediaViewerWindowRequested = true
+        return true
+    }
+
+    func mediaViewerWindowDidClose() {
+        mediaViewerWindowRequested = false
+        mediaViewerItem = nil
+    }
+#endif
+
+    func fileTransferProgressState(
+        for conversation: Int32,
+        item: Int32
+    ) -> FileTransferProgressState? {
+        fileTransferProgressStore.state(
+            for: FileTransferProgressKey(conversation: conversation, item: item))
+    }
+
+    func messageRevision(for conversation: Int32) -> Int {
+        messageRevisions[conversation] ?? 0
+    }
+
+    func messageUpdateWasSynced(for conversation: Int32) -> Bool {
+        messageUpdateWasSynced[conversation] ?? false
+    }
+
+    func historyPageRevision(for conversation: Int32) -> Int {
+        historyPageRevisions[conversation] ?? 0
+    }
+
+    func historyPageRenderedRowsAdded(for conversation: Int32) -> Bool {
+        historyPageRenderedRowsAdded[conversation] ?? false
+    }
+
+    func canLoadOlderHistory(for conversation: Int32) -> Bool {
+        historyPagination[conversation]?.canLoadOlder == true
+    }
+
+    func typingIndicatorText(for conversationId: Int32) -> String? {
+        guard chatStates[conversationId] == "composing" else { return nil }
+        return typingIndicatorLabel(names: typingNames[conversationId] ?? [])
+    }
+
+    private func replaceNavigation(with path: [Int32]) {
+        guard navigation != path else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.navigation != path else { return }
+            self.navigation = path
+        }
+    }
+
+    private func pushNavigation(_ id: Int32) {
+        guard navigation.last != id else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.navigation.last != id else { return }
+            self.navigation.append(id)
+        }
+    }
+    func selectConversation(_ id: Int32) {
+        replaceNavigation(with: [id])
+    }
+
+    func presentNewMessage() {
+        requestState()
+        newMessagePresented = true
+    }
+
+    /// Installs delayed in-memory chat history for UI tests. The default fixture
+    /// expands its last file row into an image; the composer variant uses longer,
+    /// mixed-height text history to expose lazy-layout jumps during resizing.
+    /// `DINO_UI_TEST_MESSAGE_COUNT` scales that fixture for long-history tests.
+    @discardableResult
+    func configureUITestFixtureIfRequested() -> Bool {
+#if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        guard let fixture = env["DINO_UI_TEST_FIXTURE"] else { return false }
+        if fixture == "login" {
+            isUITestFixture = true
+            ready = true
+            accounts = []
+            return true
+        }
+        if fixture == "account-avatar" {
+            let account = XmppAccount(id: "fixture@example.invalid", state: "connected")
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: 64, height: 64))
+            let image = renderer.image { context in
+                UIColor.systemPink.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+            }
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("gecko-account-avatar-fixture.png")
+
+            isUITestFixture = true
+            ready = true
+            accounts = [account]
+            accountAlias = "Fixture Account"
+            if let data = image.pngData(), (try? data.write(to: url)) != nil {
+                avatars[account.id] = url.path
+                if env["DINO_UI_TEST_AVATAR_UPDATE"] == "1" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                        let updated = renderer.image { context in
+                            UIColor.cyan.setFill()
+                            context.fill(CGRect(x: 0, y: 0, width: 64, height: 64))
+                        }
+                        let updatedURL = url.deletingLastPathComponent()
+                            .appendingPathComponent("gecko-account-avatar-updated.png")
+                        if let data = updated.pngData(), (try? data.write(to: updatedURL)) != nil {
+                            self?.avatars[account.id] = updatedURL.path
+                        }
+                    }
+                }
+            }
+            return true
+        }
+        guard fixture == "chat-visibility" else { return false }
+        let composerFixture = env["DINO_UI_TEST_COMPOSER"] == "1"
+        let uploadImageFixture = env["DINO_UI_TEST_UPLOAD_IMAGE"] == "1"
+        let progressFixture = env["DINO_UI_TEST_UPLOAD_PROGRESS"] == "1" || uploadImageFixture
+        let unreadClearFixture = env["DINO_UI_TEST_UNREAD_CLEAR"] == "1"
+        let delayedRouteFixture = env["DINO_UI_TEST_DELAYED_ROUTE"] == "1"
+        let roomMembersFixture = env["DINO_UI_TEST_ROOM_MEMBERS"] == "1"
+        let switchConversationsFixture = env["DINO_UI_TEST_SWITCH_CONVERSATIONS"] == "1"
+        let sentDownloadFixture = env["DINO_UI_TEST_SENT_DOWNLOAD"] == "1"
+        let conversation: Int32 = 9001
+        let secondaryConversation: Int32 = 9002
+        isUITestFixture = true
+        uiTestRoomMembersFixture = roomMembersFixture
+        uiTestClearsUnreadOnFocus = unreadClearFixture
+        uiTestDelaysDirectRouteAction = delayedRouteFixture
+        ready = !delayedRouteFixture
+        accounts = [XmppAccount(id: "fixture@example.invalid", state: "connected")]
+        var conversationSnapshot = [
+            XmppConversation(
+                id: conversation,
+                jid: "visibility@example.invalid",
+                name: "Visibility Regression",
+                encryption: "NONE",
+                kind: roomMembersFixture ? "groupchat" : "chat",
+                unread: unreadClearFixture ? 3 : 0),
+        ]
+        if switchConversationsFixture {
+            conversationSnapshot.append(
+                XmppConversation(
+                    id: secondaryConversation,
+                    jid: "focus-target@example.invalid",
+                    name: "Focus Target",
+                    encryption: "NONE",
+                    kind: "chat",
+                    unread: 0))
+        }
+        if delayedRouteFixture {
+            navigation = []
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self else { return }
+                self.ready = true
+                self.updateConversations(conversationSnapshot)
+            }
+        } else {
+            updateConversations(conversationSnapshot)
+            navigation = unreadClearFixture ? [] : [conversation]
+        }
+        if roomMembersFixture {
+            occupants[conversation] = [
+                Occupant(
+                    nick: "Fixture User",
+                    jid: "visibility@example.invalid/Fixture User",
+                    realJid: "fixture@example.invalid",
+                    isSelf: true,
+                    affiliation: env["DINO_UI_TEST_ROOM_AFFILIATION"] ?? "owner",
+                    role: "moderator"),
+                Occupant(
+                    nick: "Online Member",
+                    jid: "visibility@example.invalid/Online Member",
+                    realJid: "online-member@example.invalid",
+                    isSelf: false,
+                    affiliation: "member",
+                    role: "participant"),
+            ]
+            offlineMembers[conversation] = [
+                OfflineMember(
+                    id: "offline:offline-owner@example.invalid",
+                    name: "Offline Owner",
+                    jid: "offline-owner@example.invalid",
+                    affiliation: "owner"),
+                OfflineMember(
+                    id: "offline:offline-member@example.invalid",
+                    name: "Offline Member",
+                    jid: "offline-member@example.invalid",
+                    affiliation: "member"),
+            ]
+        }
+
+        if env["DINO_UI_TEST_HISTORY"] == "1" {
+            uiTestHistoryItems = (1...150).map { index in
+                [
+                    "item": index, "content": "text", "direction": "in",
+                    "from": "visibility@example.invalid", "body": "History message \(index)",
+                    "time": 1_700_000_000 + index * 60, "encryption": "NONE",
+                ]
+            }
+            return true
+        }
+
+        if let encoded = env["DINO_UI_TEST_IMAGE_DATA"],
+           let data = Data(base64Encoded: encoded, options: .ignoreUnknownCharacters) {
+            let ext = env["DINO_UI_TEST_IMAGE_EXTENSION"] ?? "gif"
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("gecko-image-fixture.\(ext)")
+            let mime = MediaFileKind.isVideo(fileName: url.lastPathComponent)
+                ? "video/mp4"
+                : "image/\(ext)"
+            do {
+                try data.write(to: url)
+            } catch {
+                lastError = error.localizedDescription
+                return true
+            }
+            messages[conversation] = [
+                ChatMessage(
+                    id: 9_100, content: "file", direction: "in",
+                    from: "visibility@example.invalid", body: "", time: Date(), encryption: "NONE",
+                    fileName: url.lastPathComponent, mime: mime, size: data.count,
+                    fileState: "complete", path: url.path)
+            ]
+            return true
+        }
+
+        if env["DINO_UI_TEST_AUDIO"] == "1" {
+            // 24 seconds of mono 8 kHz PCM silence; no network or codec fixtures.
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("gecko-audio-fixture.wav")
+            var wav = Data()
+            func append(_ value: UInt32, bytes: Int) {
+                for offset in 0..<bytes { wav.append(UInt8(truncatingIfNeeded: value >> (offset * 8))) }
+            }
+            wav.append(contentsOf: "RIFF".utf8)
+            append(384_036, bytes: 4)
+            wav.append(contentsOf: "WAVEfmt ".utf8)
+            append(16, bytes: 4)
+            append(1, bytes: 2)
+            append(1, bytes: 2)
+            append(8_000, bytes: 4)
+            append(16_000, bytes: 4)
+            append(2, bytes: 2)
+            append(16, bytes: 2)
+            wav.append(contentsOf: "data".utf8)
+            append(384_000, bytes: 4)
+            wav.append(Data(count: 384_000))
+            let broken = url.deletingLastPathComponent().appendingPathComponent("gecko-broken-audio.wav")
+            do {
+                try wav.write(to: url)
+                try Data("not an audio file".utf8).write(to: broken)
+            } catch {
+                lastError = error.localizedDescription
+                return true
+            }
+            messages[conversation] = ["first.wav", "second.wav", "broken.wav"].enumerated().map { index, name in
+                ChatMessage(
+                    id: Int32(9_100 + index), content: "file", direction: index == 1 ? "out" : "in",
+                    from: "visibility@example.invalid", body: "", time: Date(), encryption: "NONE",
+                    fileName: name, mime: "application/octet-stream", size: wav.count,
+                    fileState: "complete", path: index == 2 ? broken.path : url.path)
+            }
+            return true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self else { return }
+            let start = Date(timeIntervalSince1970: 1_700_000_000)
+            var uploadImagePath = ""
+            if uploadImageFixture {
+                let renderer = UIGraphicsImageRenderer(size: CGSize(width: 640, height: 480))
+                let image = renderer.image { context in
+                    UIColor.systemTeal.setFill()
+                    context.fill(CGRect(x: 0, y: 0, width: 640, height: 480))
+                }
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("gecko-upload-image-fixture.png")
+                guard let data = image.pngData(), (try? data.write(to: url)) != nil else { return }
+                uploadImagePath = url.path
+            } else if progressFixture {
+                // An upload has its local file; an outgoing transfer without
+                // one is a synchronized attachment being downloaded.
+                let url = FileManager.default.temporaryDirectory.appendingPathComponent("upload-fixture.bin")
+                guard (try? Data(count: 2_048).write(to: url)) != nil else { return }
+                uploadImagePath = url.path
+            }
+            let requestedMessageCount = Int(env["DINO_UI_TEST_MESSAGE_COUNT"] ?? "")
+                .map { min(max($0, 1), 20_000) }
+            let messageCount = requestedMessageCount ?? (composerFixture ? 80 : 24)
+            let baseMessageID: Int32 = requestedMessageCount == nil ? 9_100 : 1_000_000
+            var fixture = (0..<messageCount).map { index in
+                ChatMessage(
+                    id: baseMessageID + Int32(index),
+                    content: "text",
+                    direction: index.isMultiple(of: 2) ? "in" : "out",
+                    from: index.isMultiple(of: 2)
+                        ? "visibility@example.invalid"
+                        : "fixture@example.invalid",
+                    body: composerFixture
+                        ? String(repeating: "Message \(index) with variable height. ", count: index % 7 + 1)
+                        : "Deterministic message \(index)",
+                    time: start.addingTimeInterval(Double(index) * 60),
+                    encryption: "NONE")
+            }
+            var newestBody = "Newest fixture message"
+            if let style = env["DINO_UI_TEST_LONG_MESSAGE"] {
+                let lines = (1...80).map { "Line \($0): a long message must remain readable at the chat width." }
+                newestBody = lines.joined(separator: "\n") + "\nEnd of long message"
+                if style == "quoted" {
+                    newestBody = "> A quoted introduction\n" + newestBody
+                }
+            }
+            fixture.append(
+                ChatMessage(
+                    id: 9_199,
+                    content: composerFixture ? "text" : "file",
+                    direction: progressFixture || sentDownloadFixture ? "out" : "in",
+                    from: progressFixture || sentDownloadFixture
+                        ? "fixture@example.invalid"
+                        : "visibility@example.invalid",
+                    body: composerFixture ? newestBody : "",
+                    time: start.addingTimeInterval(composerFixture ? 4_800 : 1_500),
+                    encryption: "NONE",
+                    fileName: uploadImageFixture
+                        ? "upload-fixture.png"
+                        : progressFixture ? "upload-fixture.bin" : "fixture.png",
+                    mime: uploadImageFixture
+                        ? "image/png"
+                        : progressFixture ? "application/octet-stream" : "image/png",
+                    size: progressFixture ? 2_048 : 1_024,
+                    fileState: progressFixture ? "in_progress" : "not_started",
+                    path: uploadImagePath))
+            if progressFixture {
+                self.fileTransferProgressStore.update(
+                    FileTransferProgressKey(conversation: conversation, item: 9_199),
+                    transferredBytes: 1_024,
+                    totalBytes: 2_048)
+            }
+            self.messages[conversation] = fixture
+            self.messageRevisions[conversation, default: 0] += 1
+            if switchConversationsFixture {
+                self.messages[secondaryConversation] = [
+                    ChatMessage(
+                        id: 9_200, content: "text", direction: "in",
+                        from: "focus-target@example.invalid", body: "Second fixture message",
+                        time: start.addingTimeInterval(4_860), encryption: "NONE"),
+                ]
+                self.messageRevisions[secondaryConversation, default: 0] += 1
+            }
+        }
+
+        if env["DINO_UI_TEST_CONTACT_REQUESTS"] == "1" {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                for jid in ["first@example.org", "second@example.org"] {
+                    self?.handle(["type": "subscription_request", "jid": jid])
+                }
+            }
+        }
+
+        if env["DINO_UI_TEST_MUC_INVITES"] == "1" {
+            uiTestMucInviteFailurePending = env["DINO_UI_TEST_MUC_INVITE_FAILURE"] == "1"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                for room in ["room-one@conference.example.org", "room-two@conference.example.org"] {
+                    self?.handle([
+                        "type": "muc_invite", "account": "fixture@example.invalid",
+                        "room": room, "inviter": "friend@example.org", "reason": "Join our room",
+                    ])
+                }
+            }
+        }
+
+        guard !composerFixture, !progressFixture else { return true }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            guard let self else { return }
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: 640, height: 480))
+            let image = renderer.image { context in
+                UIColor.systemTeal.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 640, height: 480))
+            }
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("gecko-chat-visibility-fixture.png")
+            guard let data = image.pngData(), (try? data.write(to: url)) != nil,
+                  var fixture = self.messages[conversation],
+                  let index = fixture.firstIndex(where: { $0.id == 9_199 })
+            else { return }
+            fixture[index].path = url.path
+            fixture[index].fileState = "complete"
+            self.messages[conversation] = fixture
+            self.messageRevisions[conversation, default: 0] += 1
+            self.uiTestImageSettled = true
+
+            guard env["DINO_UI_TEST_RAPID_MEDIA"] != nil else { return }
+            self.viewerRequest = url.path
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.viewerRequest = url.path
+            }
+        }
+        return true
+#else
+        return false
+#endif
+    }
+
+    func boot() {
+        if booted { return }
+        booted = true
+        if configureUITestFixtureIfRequested() { return }
+        GeckoCore.shared.onEvent = { [weak self] e in self?.handle(e) }
+        DispatchQueue.global(qos: .userInitiated).async {
+            GeckoCore.shared.start()
+        }
+    }
+
+    func addAccount(jid: String, password: String) {
+        GeckoCore.shared.addAccount(jid: jid, password: password)
+    }
+
+    func startConversation(jid: String) {
+        GeckoCore.shared.startConversation(jid: jid)
+    }
+
+    func signOut() {
+        GeckoCore.shared.signOut()
+    }
+
+    func startCall(conversation: Int32) {
+        guard activeCall == nil else { return }
+        callSignaling.start(conversation: conversation)
+    }
+
+    func acceptCall() {
+        guard let call = activeCall, call.incoming, call.state == "ringing" else { return }
+        callSignaling.accept(call.id)
+    }
+
+    func declineCall() {
+        guard let call = activeCall, !call.isTerminal else { return }
+        callSignaling.reject(call.id)
+    }
+
+    func endCall() {
+        guard let call = activeCall, !call.isTerminal else { return }
+        callSignaling.end(call.id)
+    }
+
+    func toggleCallMute() {
+        guard let call = activeCall, !call.isTerminal else { return }
+        callMuted.toggle()
+        callEngine.isMuted = callMuted
+        callSignaling.setMuted(call.id, callMuted)
+    }
+
+    func toggleCallSpeaker() {
+        callSpeaker.toggle()
+#if !targetEnvironment(macCatalyst)
+        callEngine.setSpeaker(callSpeaker)
+#endif
+    }
+
+    private func receiveCall(_ call: CallSnapshot) {
+        let terminal = CallInfo.terminalStates.contains(call.state)
+        if let active = activeCall, active.id != call.id {
+            // Signalling runs one call at a time, so only a finished call's
+            // outcome can still be showing; the new call takes over from it.
+            clearCall()
+        } else if activeCall?.isTerminal == true {
+            return
+        }
+        var info = CallInfo(
+            id: call.id, conversation: call.conversation, jid: call.jid, name: call.name,
+            incoming: call.incoming, state: call.state, startedAt: activeCall?.startedAt)
+        if info.state == "in_progress", info.startedAt == nil { info.startedAt = Date() }
+        guard info != activeCall else { return }
+        activeCall = info
+        if terminal {
+            // Media stops now; the card stays a moment so the outcome can be read.
+            callEngine.closeAll()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self, self.activeCall?.id == info.id else { return }
+                self.clearCall()
+            }
+        } else if info.incoming, info.state == "ringing",
+                  ProcessInfo.processInfo.environment["DINO_AUTOANSWER"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self, self.activeCall?.id == info.id else { return }
+                self.acceptCall()
+            }
+        } else if info.state == "in_progress",
+                  let seconds = ProcessInfo.processInfo.environment["DINO_AUTOHANGUP"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+                guard let self, self.activeCall?.id == info.id else { return }
+                self.endCall()
+            }
+        }
+    }
+
+    private func clearCall() {
+        activeCall = nil
+        callMuted = false
+        callSpeaker = false
+        callEngine.isMuted = false
+#if !targetEnvironment(macCatalyst)
+        callEngine.setSpeaker(false)
+#endif
+        callEngine.closeAll()
+    }
+
+    /// Publishing an avatar wants PNG bytes; that conversion is a decode and
+    /// re-encode, so it runs off the main actor. A failed conversion falls
+    /// back to the original file rather than dropping the request. On success
+    /// the staged original is no longer needed, so it is deleted here; the
+    /// fallback keeps it because the core still has to read it.
+    private static func avatarUploadPath(for source: String) async -> String {
+        await Task.detached(priority: .userInitiated) {
+            guard let png = avatarPNG(from: source) else { return source }
+            AttachmentStaging.removeTemporaryCopy(at: URL(fileURLWithPath: source))
+            return png
+        }.value
+    }
+
+    func setAvatar(path: String) {
+        Task {
+            let uploadPath = await Self.avatarUploadPath(for: path)
+            GeckoCore.shared.setAvatar(path: uploadPath)
+            // Preview the chosen image while publication and the server's
+            // avatar event catch up; clearing it shows the initials fallback.
+            if let jid = accounts.first?.id {
+                requestedAvatars.remove(jid)
+                setAvatarPath(uploadPath, for: jid)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    GeckoCore.shared.requestAvatar(jid: jid)
+                }
+            }
+        }
+    }
+
+    func setAlias(_ alias: String) {
+        GeckoCore.shared.setAlias(alias)
+    }
+
+    func changePassword(_ pw: String) {
+        GeckoCore.shared.changePassword(pw)
+    }
+
+    func requestAccountDetails() {
+        GeckoCore.shared.requestAccountDetails()
+    }
+
+    func requestState() {
+        GeckoCore.shared.requestState()
+    }
+
+    func setApplicationActive(_ active: Bool) {
+        applicationIsActive = active
+        reconcileConversationFocus()
+    }
+
+    func focusConversation(_ id: Int32) {
+        guard applicationIsActive, navigation.last == id else { return }
+        applyConversationFocus(conversationFocus.transition(to: id))
+    }
+
+    func blurConversation(_ id: Int32) {
+        applyConversationFocus(conversationFocus.conversationDisappeared(id))
+    }
+
+    private func reconcileConversationFocus() {
+        let conversation = applicationIsActive ? navigation.last : nil
+        applyConversationFocus(conversationFocus.transition(to: conversation))
+    }
+
+    private func applyConversationFocus(_ actions: [ConversationFocusAction]) {
+        if isUITestFixture {
+            // The real bridge responds to focus by pushing the authoritative
+            // conversation list. Simulate only that response in this fixture.
+            guard uiTestClearsUnreadOnFocus else { return }
+            var updated = conversations
+            for action in actions {
+                guard case .focus(let id) = action,
+                      let index = updated.firstIndex(where: { $0.id == id })
+                else {
+                    continue
+                }
+                updated[index].unread = 0
+            }
+            updateConversations(updated)
+            return
+        }
+        for action in actions {
+            switch action {
+            case .blur(let id):
+                GeckoCore.shared.blurConversation(id)
+            case .focus(let id):
+                GeckoCore.shared.focusConversation(id)
+            }
+        }
+    }
+
+    private func updateConversations(_ updated: [XmppConversation]) {
+        conversations = updated
+        let matchingConversation = directChatRoute.pendingJid.flatMap { jid in
+            updated.first(where: { $0.jid == jid })?.id
+        }
+        let actions = directChatRoute.conversationsUpdated(
+            matchingConversation: matchingConversation)
+        guard uiTestDelaysDirectRouteAction, !actions.isEmpty else {
+            applyDirectChatRoute(actions)
+            return
+        }
+        uiTestDelaysDirectRouteAction = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.applyDirectChatRoute(actions)
+        }
+    }
+
+    private func applyDirectChatRoute(_ actions: [DirectChatRouteAction]) {
+        for action in actions {
+            switch action {
+            case .navigate(let id):
+                replaceNavigation(with: [id])
+            case .startConversation(let jid):
+                startConversation(jid: jid)
+            }
+        }
+    }
+
+    func setTyping(_ id: Int32, _ typing: Bool) {
+        GeckoCore.shared.setTyping(id, typing)
+    }
+
+    /// Provisional only: the core selects again when the file is actually sent.
+    func previewFileTransport(
+        _ id: Int32,
+        path: String,
+        completion: ((FileTransportPreview) -> Void)? = nil
+    ) {
+        let requestID = UUID().uuidString
+        fileTransportPreviews[id] = FileTransportPreview(requestID: requestID, path: path)
+        fileTransportCompletions[id] = completion
+#if DEBUG
+        if isUITestFixture {
+            let env = ProcessInfo.processInfo.environment
+            let sequence = (env["DINO_UI_TEST_FILE_TRANSPORT"] ?? "http").split(separator: ",")
+            let transport = sequence.isEmpty ? "none"
+                : String(sequence[min(uiTestFileTransportRequestCount, sequence.count - 1)])
+            uiTestFileTransportRequestCount += 1
+            let delay = Double(env["DINO_UI_TEST_FILE_TRANSPORT_DELAY"] ?? "") ?? 0.8
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.handle([
+                    "type": "file_transport", "conversation": Int(id),
+                    "request_id": requestID, "transport": transport,
+                    "message": "No compatible transfer method is currently available."
+                ])
+            }
+            return
+        }
+#endif
+        GeckoCore.shared.previewFileTransport(id, path: path, requestID: requestID)
+    }
+
+    func cancelFileTransportPreview(_ id: Int32) {
+        fileTransportPreviews[id] = nil
+        fileTransportCompletions[id] = nil
+    }
+
+    private func receiveFileTransportPreview(_ event: [String: Any]) {
+        guard let rawID = event["conversation"] as? Int,
+              let id = Int32(exactly: rawID),
+              let requestID = event["request_id"] as? String,
+              var preview = fileTransportPreviews[id],
+              preview.requestID == requestID, preview.isChecking else { return }
+        preview.transport = FileTransportPreview.Transport(
+            rawValue: event["transport"] as? String ?? "") ?? FileTransportPreview.Transport.none
+        if preview.transport == FileTransportPreview.Transport.none {
+            preview.message = event["message"] as? String
+                ?? "Unable to determine a transfer method. Try sending again."
+        }
+        fileTransportPreviews[id] = preview
+        let completion = fileTransportCompletions.removeValue(forKey: id)
+        completion?(preview)
+    }
+
+    func sendFile(_ id: Int32, path: String) {
+#if DEBUG
+        if isUITestFixture {
+            let url = URL(fileURLWithPath: path)
+            messages[id, default: []].append(ChatMessage(
+                id: (messages[id]?.map(\.id).max() ?? 0) + 1,
+                content: "file", direction: "out", from: "fixture@example.invalid",
+                body: "", time: Date(), encryption: "NONE",
+                fileName: url.lastPathComponent, fileState: "complete", path: path))
+            messageRevisions[id, default: 0] += 1
+            return
+        }
+#endif
+        GeckoCore.shared.sendFile(id, path: path)
+    }
+
+    func cancelTransfer(_ item: Int32) {
+        GeckoCore.shared.cancelTransfer(item: item)
+    }
+
+    func downloadFile(_ id: Int32, item: Int32) {
+        guard var message = messages[id]?.first(where: { $0.id == item }),
+              message.canDownloadFile else { return }
+        // Acknowledge the click before the core services the request. The
+        // core re-emits the authoritative state on completion, failures included.
+        message.fileState = "in_progress"
+        message.downloadFailureUntil = nil
+        reconcileFileTransferProgress(for: message, conversation: id)
+        mergeMessages([message], for: id, synced: true)
+        GeckoCore.shared.downloadFile(id, item: item)
+    }
+
+    func joinMuc(jid: String, nick: String?) {
+        GeckoCore.shared.joinMuc(jid: jid, nick: nick)
+    }
+
+    func createMuc(jid: String, nick: String?) {
+        GeckoCore.shared.createMuc(jid: jid, nick: nick)
+    }
+
+    func acceptMucInvite(_ invitation: MucInvitation) {
+        pendingMucInvite = nil
+        acceptingMucInvite = invitation
+#if DEBUG
+        if isUITestFixture {
+            let fail = uiTestMucInviteFailurePending
+            uiTestMucInviteFailurePending = false
+            DispatchQueue.main.async { [weak self] in
+                self?.handle([
+                    "type": fail ? "muc_invite_failed" : "muc_invite_joined",
+                    "account": invitation.account, "room": invitation.room,
+                    "conversation": 9001, "message": "Fixture join failed",
+                ])
+            }
+            return
+        }
+#endif
+        GeckoCore.shared.acceptMucInvite(
+            account: invitation.account,
+            room: invitation.room,
+            password: invitation.password
+        )
+    }
+
+    func ignoreMucInvite(_ invitation: MucInvitation) {
+        pendingMucInvite = nil
+        presentNextMucInvite()
+    }
+
+    private func enqueueMucInvite(_ invitation: MucInvitation) {
+        let duplicate = pendingMucInvite?.id == invitation.id
+            || acceptingMucInvite?.id == invitation.id
+            || queuedMucInvites.contains { $0.id == invitation.id }
+        guard !duplicate else { return }
+        if pendingMucInvite == nil && acceptingMucInvite == nil {
+            pendingMucInvite = invitation
+        } else {
+            queuedMucInvites.append(invitation)
+        }
+    }
+
+    private func presentNextMucInvite() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self,
+                  self.pendingMucInvite == nil,
+                  self.acceptingMucInvite == nil,
+                  !self.queuedMucInvites.isEmpty else { return }
+            self.pendingMucInvite = self.queuedMucInvites.removeFirst()
+        }
+    }
+
+    func closeConversation(_ id: Int32) {
+        GeckoCore.shared.closeConversation(id)
+        if navigation.contains(id) { replaceNavigation(with: []) }
+    }
+
+    func startRoomMemberDM(_ id: Int32, jid: String) {
+        GeckoCore.shared.startRoomMemberDM(id, jid: jid)
+    }
+
+    func mucKick(_ id: Int32, nick: String) {
+        GeckoCore.shared.mucKick(id, nick: nick)
+        refreshOccupantsSoon(id)
+    }
+
+    func mucSetAffiliation(_ id: Int32, jid: String, affiliation: String) {
+        GeckoCore.shared.mucSetAffiliation(id, jid: jid, affiliation: affiliation)
+    }
+
+    func mucSetRole(_ id: Int32, nick: String, role: String) {
+        GeckoCore.shared.mucSetRole(id, nick: nick, role: role)
+        refreshOccupantsSoon(id)
+    }
+
+    /// Re-fetch the occupant list shortly after a moderation action so the UI
+    /// reflects the server's broadcast presence change.
+    private func refreshOccupantsSoon(_ id: Int32) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            self?.requestOccupants(id)
+        }
+    }
+
+    func requestRoomInfo(_ id: Int32) {
+#if DEBUG
+        if uiTestRoomMembersFixture { return }
+#endif
+        GeckoCore.shared.requestRoomInfo(id)
+    }
+    func setRoomSubject(_ id: Int32, _ subject: String) { GeckoCore.shared.mucSetSubject(id, subject: subject) }
+    func inviteToRoom(_ id: Int32, jid: String) { GeckoCore.shared.mucInvite(id, jid: jid) }
+    func setRoomName(_ id: Int32, _ name: String) { GeckoCore.shared.mucSetName(id, name: name) }
+    func setRoomPrivate(_ id: Int32, _ priv: Bool) {
+        roomInfo[id]?.isPrivate = priv   // optimistic; bridge re-emits room_info to confirm
+        GeckoCore.shared.mucSetPrivate(id, priv)
+    }
+    func setRoomModerated(_ id: Int32, _ moderated: Bool) {
+        roomInfo[id]?.isModerated = moderated
+        GeckoCore.shared.mucSetModerated(id, moderated)
+    }
+    func setRoomAvatar(_ id: Int32, path: String) {
+        Task {
+            GeckoCore.shared.mucSetAvatar(id, path: await Self.avatarUploadPath(for: path))
+        }
+    }
+
+    func requestOccupants(_ id: Int32) {
+#if DEBUG
+        if uiTestRoomMembersFixture { return }
+#endif
+        GeckoCore.shared.requestOccupants(id)
+    }
+
+    func setReaction(_ id: Int32, item: Int32, emoji: String, add: Bool) {
+#if DEBUG
+        if isUITestFixture {
+            guard let index = messages[id]?.firstIndex(where: { $0.id == item }) else { return }
+            var reactions = messages[id]![index].reactions
+            if let existing = reactions.firstIndex(where: { $0.emoji == emoji }) {
+                if reactions[existing].me != add {
+                    reactions[existing] = Reaction(
+                        emoji: emoji, count: reactions[existing].count + (add ? 1 : -1), me: add)
+                }
+                if reactions[existing].count == 0 { reactions.remove(at: existing) }
+            } else if add {
+                reactions.append(Reaction(emoji: emoji, count: 1, me: true))
+            }
+            messageRevisions[id, default: 0] &+= 1
+            messages[id]![index].reactions = reactions
+            return
+        }
+#endif
+        GeckoCore.shared.setReaction(id, item: item, emoji: emoji, add: add)
+    }
+
+    func correctMessage(_ id: Int32, item: Int32, body: String) {
+        GeckoCore.shared.correctMessage(id, item: item, body: body)
+    }
+
+    func ensureAvatar(for jid: String) {
+#if DEBUG
+        if uiTestRoomMembersFixture { return }
+#endif
+        if avatars[jid] == nil && !requestedAvatars.contains(jid) {
+            requestedAvatars.insert(jid)
+            GeckoCore.shared.requestAvatar(jid: jid)
+        }
+    }
+
+    /// Start (or open) a chat with a contact and navigate into it once the
+    /// conversation id arrives with the next conversations push.
+    /// XMPP "show" for a 1:1 contact from the roster (nil if not a known contact).
+    func presence(for jid: String) -> String? {
+        roster.first { $0.id == jid }?.show
+    }
+
+    func setPresence(show: String, status: String) {
+        selfShow = show
+        selfStatus = status
+        GeckoCore.shared.setPresence(show: show, status: status)
+    }
+
+    func requestSelfPresence() { GeckoCore.shared.requestSelfPresence() }
+
+    func requestBlocklist() { GeckoCore.shared.requestBlocklist() }
+    func blockContact(_ jid: String) {
+        if !blockedContacts.contains(jid) { blockedContacts = (blockedContacts + [jid]).sorted() }
+        GeckoCore.shared.blockContact(jid)
+    }
+    func unblockContact(_ jid: String) {
+        blockedContacts.removeAll { $0 == jid }   // optimistic
+        GeckoCore.shared.unblockContact(jid)
+    }
+    func isBlocked(_ jid: String) -> Bool { blockedContacts.contains(jid) }
+
+    func requestPrivacy() { GeckoCore.shared.requestPrivacy() }
+    func setSendTyping(_ on: Bool) { sendTyping = on; GeckoCore.shared.setSendTyping(on) }
+    func setSendMarker(_ on: Bool) { sendMarker = on; GeckoCore.shared.setSendMarker(on) }
+
+    func openChat(with jid: String) {
+        let matchingConversation = conversations.first(where: { $0.jid == jid })?.id
+        applyDirectChatRoute(
+            directChatRoute.request(
+                jid: jid,
+                matchingConversation: matchingConversation))
+    }
+
+    func addContact(jid: String, alias: String?) {
+        GeckoCore.shared.addContact(jid: jid, alias: alias)
+    }
+
+    func removeContact(jid: String) {
+        GeckoCore.shared.removeContact(jid: jid)
+    }
+
+    func respondSubscription(jid: String, approve: Bool) {
+        if !isUITestFixture { GeckoCore.shared.respondSubscription(jid: jid, approve: approve) }
+        subscriptionRequests.removeAll { $0 == jid }
+        ContactRequestNotification.clear(jid: jid)
+    }
+
+    /// First open establishes pagination and replaces any incidental live-only
+    /// cache. Later opens retain older pages only when the authoritative latest
+    /// page overlaps the previous raw history window.
+    func openConversation(_ id: Int32) {
+        if historyPagination[id] == nil {
+            pendingOlderMessages.removeValue(forKey: id)
+            historyPagination[id] = HistoryPagination()
+            replacingMessageHistory.insert(id)
+        }
+#if DEBUG
+        if !uiTestHistoryItems.isEmpty {
+            let page = Array(uiTestHistoryItems.suffix(Int(messagePageSize)))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.handle([
+                    "type": "history", "conversation": Int(id), "items": page,
+                    "complete": page.count < Int(self?.messagePageSize ?? 50),
+                    "next_before": page.first?["item"] ?? NSNull(),
+                ])
+            }
+            return
+        }
+#endif
+        GeckoCore.shared.requestMessages(conversation: id, count: messagePageSize)
+#if targetEnvironment(macCatalyst)
+        restartGroupHistoryRetries(for: id)
+#endif
+    }
+
+#if targetEnvironment(macCatalyst)
+    /// A Mac window can reopen a room before its asynchronous MUC rejoin has
+    /// backfilled anything, and the empty first response looks exactly like a
+    /// genuinely empty room, so nothing wakes the chat again. Re-ask a few
+    /// times while it is still both open and blank.
+    private func restartGroupHistoryRetries(for id: Int32) {
+        groupHistoryRetry?.cancel()
+        groupHistoryRetry = nil
+        guard conversations.first(where: { $0.id == id })?.isGroupchat == true else { return }
+        groupHistoryRetry = Task { [weak self] in
+            for delay in [0.75, 0.75, 2.0, 2.5] {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let self,
+                      self.navigation.last == id,
+                      (self.messages[id] ?? []).isEmpty
+                else {
+                    return
+                }
+                self.historyPagination[id] = HistoryPagination()
+                self.replacingMessageHistory.insert(id)
+                GeckoCore.shared.requestMessages(
+                    conversation: id,
+                    count: self.messagePageSize
+                )
+            }
+        }
+    }
+#endif
+
+    func requestOlderMessages(_ id: Int32) {
+        pendingOlderMessages.removeValue(forKey: id)
+        continueOlderMessages(id)
+    }
+
+    private func continueOlderMessages(_ id: Int32) {
+        var paging = historyPagination[id] ?? HistoryPagination()
+        guard let before = paging.beginOlderRequest() else { return }
+        historyPagination[id] = paging
+#if DEBUG
+        if !uiTestHistoryItems.isEmpty,
+           let boundary = uiTestHistoryItems.firstIndex(where: { $0["item"] as? Int == Int(before) }) {
+            let page = Array(uiTestHistoryItems[..<boundary].suffix(Int(messagePageSize)))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.handle([
+                    "type": "history_before", "conversation": Int(id), "before": Int(before),
+                    "items": page, "complete": page.count < Int(self?.messagePageSize ?? 50),
+                    "next_before": page.first?["item"] ?? NSNull(),
+                ])
+            }
+            return
+        }
+#endif
+        GeckoCore.shared.requestMessagesBefore(conversation: id, before: before, count: messagePageSize)
+    }
+
+    /// Re-read state from the shared DB when returning to the foreground.
+    ///
+    /// While the app is suspended the notification-service extension (a
+    /// separate process) can receive, decrypt and store new messages directly
+    /// in the shared DB. No in-process `new_item` signal fires for those
+    /// writes, and if the chat they belong to is already the open one its
+    /// `onAppear` won't re-run on foreground — so without an explicit refresh
+    /// those messages stay missing from the open chat until it's left and
+    /// reopened. Reloading the open conversation's messages (and the
+    /// conversation list previews/unread counts) from the DB picks them up.
+    func refreshAfterForeground() {
+        GeckoCore.shared.requestState()
+        if let id = navigation.last {
+            GeckoCore.shared.requestMessages(conversation: id)
+        }
+    }
+
+    func send(_ id: Int32, _ body: String, replyTo: Int32 = 0) {
+#if DEBUG
+        if isUITestFixture {
+            messages[id, default: []].append(ChatMessage(
+                id: (messages[id]?.map(\.id).max() ?? 0) + 1,
+                content: "text", direction: "out", from: "fixture@example.invalid",
+                body: body, time: Date(), encryption: "NONE"))
+            messageRevisions[id, default: 0] += 1
+            return
+        }
+#endif
+        GeckoCore.shared.sendText(conversation: id, body: body, replyTo: replyTo)
+    }
+
+    func setEncryption(_ id: Int32, omemo: Bool) {
+        GeckoCore.shared.setEncryption(conversation: id, omemo: omemo)
+    }
+
+    func setNotify(_ id: Int32, _ setting: String) {
+        GeckoCore.shared.setNotify(id, setting)
+    }
+
+    private func handle(_ e: [String: Any]) {
+        if callSignaling.handle(e) { return }
+        liveLog(e)
+        switch e["type"] as? String {
+        case "file_transport":
+            receiveFileTransportPreview(e)
+        case "ready":
+            ready = true
+            GeckoCore.shared.requestState()
+            runAutomation()
+        case "accounts":
+            if let list = e["list"] as? [[String: Any]] {
+                accounts = list.compactMap { a in
+                    guard let jid = a["jid"] as? String else { return nil }
+                    return XmppAccount(id: jid, state: a["state"] as? String ?? "?")
+                }
+            }
+        case "account_added":
+            GeckoCore.shared.requestState()
+        case "account_details":
+            accountAlias = e["alias"] as? String ?? ""
+            omemoDeviceId = e["omemo_device_id"] as? Int ?? 0
+            omemoFingerprint = e["omemo_fingerprint"] as? String ?? ""
+        case "password_changed":
+            passwordChanged = true
+        case "signed_out":
+            fileTransportPreviews = [:]
+            fileTransportCompletions = [:]
+            accounts = []
+            directChatRoute = DirectChatRouteState()
+            conversations = []
+            messages = [:]
+            messageRevisions = [:]
+            messageUpdateWasSynced = [:]
+            historyPageRevisions = [:]
+            historyPageRenderedRowsAdded = [:]
+            historyPagination = [:]
+            replacingMessageHistory = []
+            pendingOlderMessages = [:]
+            fileTransferProgressStore.removeAll()
+            replaceNavigation(with: [])
+            roster = []
+            subscriptionRequests.forEach(ContactRequestNotification.clear)
+            subscriptionRequests = []
+            pendingMucInvite = nil
+            acceptingMucInvite = nil
+            queuedMucInvites = []
+            accountAlias = ""
+            omemoDeviceId = 0
+            omemoFingerprint = ""
+            blockedContacts = []
+            blockingSupported = false
+            requestedAvatars = []
+            callSignaling.reset()
+            clearCall()
+            callError = nil
+            GeckoCore.shared.requestState()
+        case "connection":
+            if let jid = e["account"] as? String, let state = e["state"] as? String {
+                if let i = accounts.firstIndex(where: { $0.id == jid }) {
+                    accounts[i].state = state
+                } else {
+                    accounts.append(XmppAccount(id: jid, state: state))
+                }
+                if state == "CONNECTED" {
+#if !targetEnvironment(macCatalyst)
+                    PushRegistration.start()
+                    PushRegistration.enableOnServer()
+#endif
+                    runConnectedAutomation()
+                }
+            }
+        case "connection_error":
+            let source = e["source"] as? String ?? "?"
+            if source.hasSuffix("SASL"), let jid = e["account"] as? String {
+                // Not transient: the server rejected the password, and every
+                // retry would fail the same way. Sign out (the account row and
+                // OMEMO identity are kept) so the user lands on the login
+                // screen instead of a "logged in" app that can never connect.
+                lastError = "Sign-in failed for \(jid): the server rejected the password."
+                accountSettingsPresented = false
+                signOut()
+            } else {
+                // Transient and auto-recovering (e.g. a brief stream drop or a
+                // resource handover with the notification extension) — the live
+                // connection state is already shown in the account row, so don't
+                // interrupt with a modal alert.
+                geckoDebugLog("Gecko: connection error (%@)", source)
+            }
+        case "conversations":
+            if let list = e["list"] as? [[String: Any]] {
+                let updated = list.compactMap { c -> XmppConversation? in
+                    guard let id = c["id"] as? Int, let jid = c["jid"] as? String else { return nil }
+                    return XmppConversation(
+                        id: Int32(id), jid: jid,
+                        name: c["name"] as? String ?? jid,
+                        encryption: c["encryption"] as? String ?? "NONE",
+                        encryptionAvailable: c["encryption_available"] as? Bool ?? false,
+                        kind: c["kind"] as? String ?? "chat",
+                        unread: c["unread"] as? Int ?? 0,
+                        preview: c["preview"] as? String ?? "",
+                        previewDirection: c["preview_direction"] as? String ?? "",
+                        time: Date(timeIntervalSince1970: TimeInterval(c["time"] as? Int ?? 0)),
+                        notifyEffective: c["notify_effective"] as? String ?? "on")
+                }.sorted { $0.time > $1.time }
+                updateConversations(updated)
+            }
+        case "confirm_create_muc":
+            if let jid = e["jid"] as? String {
+                let nick = e["nick"] as? String
+                pendingMucCreate = PendingMucCreate(jid: jid, nick: (nick?.isEmpty ?? true) ? nil : nick)
+            }
+        case "muc_invite":
+            if let account = e["account"] as? String,
+               let room = e["room"] as? String,
+               let inviter = e["inviter"] as? String {
+                let password = e["password"] as? String
+                let reason = e["reason"] as? String
+                enqueueMucInvite(MucInvitation(
+                    account: account,
+                    room: room,
+                    inviter: inviter,
+                    password: (password?.isEmpty ?? true) ? nil : password,
+                    reason: (reason?.isEmpty ?? true) ? nil : reason,
+                    failureMessage: nil
+                ))
+            }
+        case "muc_invite_joined":
+            if let account = e["account"] as? String,
+               let room = e["room"] as? String,
+               let rawConversation = e["conversation"] as? Int,
+               let conversation = Int32(exactly: rawConversation),
+               let invitation = acceptingMucInvite,
+               invitation.account == account,
+               invitation.room == room {
+                acceptingMucInvite = nil
+                replaceNavigation(with: [conversation])
+                presentNextMucInvite()
+            }
+        case "muc_invite_failed":
+            if let account = e["account"] as? String,
+               let room = e["room"] as? String,
+               let invitation = acceptingMucInvite,
+               invitation.account == account,
+               invitation.room == room {
+                let failed = MucInvitation(
+                    account: invitation.account,
+                    room: invitation.room,
+                    inviter: invitation.inviter,
+                    password: invitation.password,
+                    reason: invitation.reason,
+                    failureMessage: e["message"] as? String ?? "Could not join the invited room"
+                )
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                    guard let self, self.acceptingMucInvite?.id == invitation.id else { return }
+                    self.acceptingMucInvite = nil
+                    self.pendingMucInvite = failed
+                }
+            }
+        case "muc_removed":
+            if let rawConversation = e["conversation"] as? Int,
+               let conversation = Int32(exactly: rawConversation) {
+                removeMucConversation(
+                    conversation,
+                    room: e["room"] as? String ?? "",
+                    reason: e["reason"] as? String ?? "removed"
+                )
+            }
+        case "push_state":
+            geckoDebugLog("gecko-push: server push enabled=%@", String(describing: e["enabled"]))
+        case "chat_state":
+            if let cid = e["conversation"] as? Int, let state = e["state"] as? String {
+                let conversationId = Int32(cid)
+                let names = e["typing_names"] as? [String] ?? []
+                if state == "composing" || !names.isEmpty {
+                    chatStates[conversationId] = "composing"
+                    typingNames[conversationId] = names
+                } else {
+                    chatStates[conversationId] = state
+                    typingNames[conversationId] = []
+                }
+            }
+        case "occupants":
+            if let cid = e["conversation"] as? Int {
+                let key = Int32(cid)
+                let list = e["list"] as? [[String: Any]] ?? []
+                occupants[key] = list.compactMap { o in
+                    guard let nick = o["nick"] as? String else { return nil }
+                    let real = o["real_jid"] as? String
+                    return Occupant(
+                        nick: nick,
+                        jid: o["jid"] as? String ?? nick,
+                        realJid: (real?.isEmpty ?? true) ? nil : real,
+                        isSelf: o["self"] as? Bool ?? false,
+                        affiliation: o["affiliation"] as? String ?? "none",
+                        role: o["role"] as? String ?? "none")
+                }.sorted { $0.nick.localizedCaseInsensitiveCompare($1.nick) == .orderedAscending }
+                offlineMembers[key] = (e["offline"] as? [[String: Any]] ?? []).compactMap { m in
+                    guard let id = m["id"] as? String,
+                          let name = m["name"] as? String,
+                          let jid = m["jid"] as? String
+                    else { return nil }
+                    return OfflineMember(
+                        id: id,
+                        name: name,
+                        jid: jid,
+                        affiliation: m["affiliation"] as? String ?? "member")
+                }.sorted {
+                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+                }
+            }
+        case "self_presence":
+            selfShow = e["show"] as? String ?? "online"
+            selfStatus = e["status"] as? String ?? ""
+        case "blocklist":
+            blockingSupported = e["supported"] as? Bool ?? false
+            blockedContacts = (e["list"] as? [String] ?? []).sorted()
+        case "privacy":
+            sendTyping = e["send_typing"] as? Bool ?? true
+            sendMarker = e["send_marker"] as? Bool ?? true
+        case "room_info":
+            if let cid = e["conversation"] as? Int {
+                roomInfo[Int32(cid)] = RoomInfo(
+                    subject: e["subject"] as? String ?? "",
+                    isPrivate: e["is_private"] as? Bool ?? false,
+                    isModerated: e["is_moderated"] as? Bool ?? false,
+                    myAffiliation: e["my_affiliation"] as? String ?? "none",
+                    myRole: e["my_role"] as? String ?? "none")
+            }
+        case "open_conversation":
+            if let id = e["id"] as? Int {
+                // Push so the new chat slides in over the current one (and Back
+                // returns to where you were, e.g. the group chat).
+                pushNavigation(Int32(id))
+            }
+        case "avatar":
+            if let jid = e["jid"] as? String, let path = e["path"] as? String {
+                setAvatarPath(path, for: jid)
+            }
+        case "roster":
+            if let list = e["list"] as? [[String: Any]] {
+                roster = list.compactMap { r in
+                    guard let jid = r["jid"] as? String else { return nil }
+                    return RosterContact(
+                        id: jid,
+                        name: r["name"] as? String ?? "",
+                        subscription: r["subscription"] as? String ?? "",
+                        show: r["show"] as? String ?? "offline")
+                }.sorted { ($0.online ? 0 : 1, $0.displayName.lowercased()) < ($1.online ? 0 : 1, $1.displayName.lowercased()) }
+            }
+        case "subscription_request":
+            if let jid = e["jid"] as? String, !subscriptionRequests.contains(jid) {
+                subscriptionRequests.append(jid)
+                ContactRequestNotification.post(jid: jid)
+            }
+            if let jid = e["jid"] as? String, ProcessInfo.processInfo.environment["DINO_AUTOACCEPT"] == jid {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    self?.respondSubscription(jid: jid, approve: true)
+                }
+            }
+        case "history":
+            if let cid = e["conversation"] as? Int, let items = e["items"] as? [[String: Any]] {
+                let conversationId = Int32(cid)
+                let complete = (e["complete"] as? Bool) ?? (items.count < Int(messagePageSize))
+                let oldestItemID = Self.historyNextBeforeItemID(e, items: items)
+                let itemIDs = items.compactMap { ($0["item"] as? Int).flatMap(Int32.init(exactly:)) }
+                let decoded = items.compactMap(Self.decodeMessage).sorted { lhs, rhs in
+                    if lhs.time == rhs.time { return lhs.id < rhs.id }
+                    return lhs.time < rhs.time
+                }
+                var paging = historyPagination[conversationId] ?? HistoryPagination()
+                let retainsOlderHistory: Bool
+                if replacingMessageHistory.remove(conversationId) != nil {
+                    paging.replaceWithLatestPage(
+                        itemIDs: itemIDs, oldestItemID: oldestItemID, complete: complete)
+                    retainsOlderHistory = false
+                } else {
+                    retainsOlderHistory = paging.refreshLatestPage(
+                        itemIDs: itemIDs, oldestItemID: oldestItemID, complete: complete)
+                }
+                if retainsOlderHistory {
+                    reconcileLatestMessages(items, for: conversationId)
+                } else {
+                    pendingOlderMessages.removeValue(forKey: conversationId)
+                    replaceMessages(decoded, for: conversationId, synced: true)
+                    // Release any viewport request whose old response is now stale.
+                    historyPageRenderedRowsAdded[conversationId] = false
+                    historyPageRevisions[conversationId, default: 0] &+= 1
+                }
+                historyPagination[conversationId] = paging
+                if decoded.isEmpty, (messages[conversationId] ?? []).isEmpty,
+                   !paging.reachedBeginning {
+                    requestOlderMessages(conversationId)
+                }
+            }
+        case "history_before":
+            if let cid = e["conversation"] as? Int,
+               let items = e["items"] as? [[String: Any]],
+               let rawBefore = e["before"] as? Int,
+               let before = Int32(exactly: rawBefore) {
+                let conversationId = Int32(cid)
+                let complete = (e["complete"] as? Bool) ?? (items.count < Int(messagePageSize))
+                let oldestItemID = Self.historyNextBeforeItemID(e, items: items)
+                var paging = historyPagination[conversationId] ?? HistoryPagination()
+                if paging.receiveOlderPage(
+                    requestedBeforeItemID: before,
+                    oldestItemID: oldestItemID,
+                    complete: complete
+                ) {
+                    let previousOldestMessageID = messages[conversationId]?.first?.id
+                    let decoded = items.compactMap(Self.decodeMessage).sorted { lhs, rhs in
+                        if lhs.time == rhs.time { return lhs.id < rhs.id }
+                        return lhs.time < rhs.time
+                    }
+                    pendingOlderMessages[conversationId, default: []].append(contentsOf: decoded)
+                    let currentOldestMessageID = (
+                        ((messages[conversationId]?.first).map { [$0] } ?? [])
+                            + (pendingOlderMessages[conversationId] ?? [])
+                    ).min { lhs, rhs in
+                        if lhs.time == rhs.time { return lhs.id < rhs.id }
+                        return lhs.time < rhs.time
+                    }?.id
+                    // Keep walking raw pages until the rendered top boundary
+                    // actually advances. Unsupported items, duplicates, and
+                    // out-of-order timestamps otherwise leave the viewport at
+                    // the same top with no user-visible page to traverse.
+                    if currentOldestMessageID == previousOldestMessageID,
+                       !paging.reachedBeginning {
+                        historyPagination[conversationId] = paging
+                        continueOlderMessages(conversationId)
+                    } else {
+                        let previousMessageCount = messages[conversationId]?.count ?? 0
+                        let completedMessages = pendingOlderMessages.removeValue(
+                            forKey: conversationId) ?? []
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        transaction.scrollContentOffsetAdjustmentBehavior = .automatic
+                        transaction.scrollPositionUpdatePreservesVelocity = true
+                        withTransaction(transaction) {
+                            historyPagination[conversationId] = paging
+                            mergeMessages(completedMessages, for: conversationId, synced: true)
+                            historyPageRenderedRowsAdded[conversationId] =
+                                (messages[conversationId]?.count ?? 0) > previousMessageCount
+                            historyPageRevisions[conversationId, default: 0] &+= 1
+                        }
+                    }
+                }
+            }
+        case "file_progress":
+            if let event = FileTransferProgressEvent(dictionary: e),
+               let message = messages[event.conversationID]?.first(where: {
+                   $0.id == event.itemID
+               }),
+               message.isFile,
+               message.fileState == "in_progress" {
+                fileTransferProgressStore.update(
+                    FileTransferProgressKey(
+                        conversation: event.conversationID,
+                        item: event.itemID
+                    ),
+                    transferredBytes: event.progress.transferredBytes,
+                    totalBytes: event.progress.totalBytes
+                )
+            }
+        case "message":
+            if let m = Self.decodeMessage(e), let cid = e["conversation"] as? Int {
+                let conversationId = Int32(cid)
+                let isNew = !(messages[conversationId]?.contains { $0.id == m.id } ?? false)
+                let isSynced = e["synced"] as? Bool ?? false
+                reconcileFileTransferProgress(for: m, conversation: conversationId)
+                mergeMessages([m], for: conversationId, synced: isSynced)
+#if targetEnvironment(macCatalyst)
+                if let conversation = conversations.first(where: { $0.id == conversationId }) {
+                    MacLocalNotifications.post(
+                        message: m,
+                        conversation: conversation,
+                        isNew: isNew,
+                        isSynced: isSynced
+                    )
+                }
+#endif
+            }
+        case "app_backgrounded":
+            if let request = autoMucInviteFailure {
+                autoMucInviteFailure = nil
+                GeckoCore.shared.mucInvite(request.conversation, jid: request.invitee)
+            }
+        case "app_background_error":
+            // The background clean-disconnect is best-effort and the app is on
+            // its way out; log it instead of arming a modal for the next launch.
+            geckoDebugLog("Gecko: background disconnect failed (%@)",
+                          e["msg"] as? String ?? "?")
+        case "download_failed":
+            if let cid = e["conversation"] as? Int32,
+               let item = e["item"] as? Int32,
+               var message = messages[cid]?.first(where: { $0.id == item }) {
+                message.downloadFailureUntil = Date().addingTimeInterval(4)
+                mergeMessages([message], for: cid, synced: true)
+            }
+        case "error", "fatal":
+            lastError = e["message"] as? String
+        default:
+            break
+        }
+    }
+
+    private func reconcileFileTransferProgress(
+        for message: ChatMessage,
+        conversation: Int32
+    ) {
+        guard message.isFile else { return }
+        let key = FileTransferProgressKey(conversation: conversation, item: message.id)
+        if message.fileState == "in_progress" {
+            fileTransferProgressStore.begin(
+                key,
+                totalBytes: message.size >= 0 ? Int64(message.size) : nil
+            )
+        } else {
+            fileTransferProgressStore.remove(key)
+        }
+    }
+
+    private func removeMucConversation(_ id: Int32, room: String, reason: String) {
+        lastError = MucRemoval(
+            conversationID: id,
+            room: room,
+            reason: reason
+        ).apply(
+            to: &conversations,
+            navigation: &navigation,
+            id: { $0.id },
+            name: { $0.name }
+        )
+        fileTransferProgressStore.removeAll(in: id)
+        messages[id] = nil
+        messageRevisions[id] = nil
+        messageUpdateWasSynced[id] = nil
+        historyPageRevisions[id] = nil
+        historyPageRenderedRowsAdded[id] = nil
+        historyPagination[id] = nil
+        replacingMessageHistory.remove(id)
+        pendingOlderMessages[id] = nil
+        chatStates[id] = nil
+        typingNames[id] = nil
+        occupants[id] = nil
+        offlineMembers[id] = nil
+        roomInfo[id] = nil
+    }
+
+    private func replaceMessages(
+        _ list: [ChatMessage],
+        for cid: Int32,
+        synced: Bool
+    ) {
+        let previousMarks = Dictionary(
+            uniqueKeysWithValues: (messages[cid] ?? []).map { ($0.id, $0.marked) })
+        let reconciled = list.map { incoming in
+            var message = incoming
+            message.marked = reconciledDeliveryMark(
+                previous: previousMarks[message.id],
+                incoming: message.marked)
+            return message
+        }
+        guard messages[cid] != reconciled else { return }
+        messageUpdateWasSynced[cid] = synced
+        messageRevisions[cid, default: 0] &+= 1
+        messages[cid] = reconciled
+    }
+
+    private func mergeMessages(
+        _ incoming: [ChatMessage],
+        for cid: Int32,
+        synced: Bool
+    ) {
+        guard !incoming.isEmpty else { return }
+        var byID = Dictionary(uniqueKeysWithValues: (messages[cid] ?? []).map { ($0.id, $0) })
+        for message in incoming {
+            byID[message.id] = message
+        }
+        replaceMessages(byID.values.sorted { lhs, rhs in
+            if lhs.time == rhs.time { return lhs.id < rhs.id }
+            return lhs.time < rhs.time
+        }, for: cid, synced: synced)
+    }
+
+    /// Reconcile an overlapping newest page, retaining cached rows strictly
+    /// before its boundary. Unsupported raw items still define that boundary.
+    private func reconcileLatestMessages(
+        _ rawItems: [[String: Any]],
+        for cid: Int32
+    ) {
+        let incoming = rawItems.compactMap(Self.decodeMessage)
+        var retained: [ChatMessage] = []
+        if let boundary = rawItems.compactMap(Self.messageCursor).min(by: Self.cursorIsEarlier) {
+            retained = (messages[cid] ?? []).filter { message in
+                message.time < boundary.time
+                    || (message.time == boundary.time && message.id < boundary.id)
+            }
+        }
+
+        var byID = Dictionary(uniqueKeysWithValues: retained.map { ($0.id, $0) })
+        for message in incoming {
+            byID[message.id] = message
+        }
+        replaceMessages(byID.values.sorted { lhs, rhs in
+            if lhs.time == rhs.time { return lhs.id < rhs.id }
+            return lhs.time < rhs.time
+        }, for: cid, synced: true)
+    }
+
+    private static func messageCursor(_ item: [String: Any]) -> (time: Date, id: Int32)? {
+        guard let seconds = item["time"] as? Int, let id = item["item"] as? Int else { return nil }
+        return (Date(timeIntervalSince1970: TimeInterval(seconds)), Int32(id))
+    }
+
+    private static func cursorIsEarlier(
+        _ lhs: (time: Date, id: Int32),
+        _ rhs: (time: Date, id: Int32)
+    ) -> Bool {
+        if lhs.time == rhs.time { return lhs.id < rhs.id }
+        return lhs.time < rhs.time
+    }
+
+    private static func historyNextBeforeItemID(
+        _ event: [String: Any],
+        items: [[String: Any]]
+    ) -> Int32? {
+        let rawID = (event["next_before"] as? Int) ?? (items.first?["item"] as? Int)
+        guard let rawID, let itemID = Int32(exactly: rawID), itemID > 0 else { return nil }
+        return itemID
+    }
+
+    private func setAvatarPath(_ path: String?, for jid: String) {
+        guard avatars[jid] != path else { return }
+        avatarRevision &+= 1
+        avatars[jid] = path
+    }
+
+    private static func decodeMessage(_ d: [String: Any]) -> ChatMessage? {
+        guard let id = d["item"] as? Int else { return nil }
+        let content = d["content"] as? String ?? "text"
+        if content != "text" && content != "file" { return nil }
+        if content == "text" && d["body"] == nil { return nil }
+        return ChatMessage(
+            id: Int32(id),
+            content: content,
+            direction: d["direction"] as? String ?? "in",
+            from: d["from"] as? String ?? "",
+            fromDisplay: d["from_display"] as? String ?? "",
+            body: d["body"] as? String ?? "",
+            mentioned: d["mentioned"] as? Bool ?? false,
+            time: Date(timeIntervalSince1970: TimeInterval(d["time"] as? Int ?? 0)),
+            encryption: d["encryption"] as? String ?? "NONE",
+            fileName: d["file_name"] as? String ?? "",
+            mime: d["mime"] as? String ?? "",
+            size: d["size"] as? Int ?? 0,
+            fileState: d["file_state"] as? String ?? "",
+            path: d["path"] as? String ?? "",
+            editable: d["editable"] as? Bool ?? false,
+            reactions: (d["reactions"] as? [[String: Any]] ?? []).compactMap { r in
+                guard let emoji = r["emoji"] as? String else { return nil }
+                return Reaction(emoji: emoji, count: r["count"] as? Int ?? 1, me: r["me"] as? Bool ?? false)
+            },
+            marked: d["marked"] as? String ?? "none",
+            quote: (d["quote"] as? [String: Any]).flatMap { q in
+                guard let item = q["item"] as? Int else { return nil }
+                return QuoteRef(item: Int32(item), from: q["from"] as? String ?? "", body: q["body"] as? String ?? "")
+            })
+    }
+
+    /// `DINO_LIVE_TEST=1`: one `gecko-live:` JSON line per event the live
+    /// script (`tools/live-test`) checks. Logged where events enter the model,
+    /// so it reads the same whichever core produced them.
+    private func liveLog(_ e: [String: Any]) {
+        guard Self.liveTest, let type = e["type"] as? String else { return }
+        var out: [String: Any] = ["type": type]
+        switch type {
+        case "history":
+            // Loaded history counts as shown, like a message arriving.
+            for item in e["items"] as? [[String: Any]] ?? [] {
+                liveLog(item.merging(["type": "message", "conversation": e["conversation"] ?? NSNull()]) { $1 })
+            }
+            return
+        case "message":
+            for key in ["item", "direction", "from", "body", "encryption", "content", "file_name", "file_state",
+                        "marked", "reactions"] {
+                out[key] = e[key]
+            }
+            if let cid = e["conversation"] as? Int {
+                out["jid"] = conversations.first { $0.id == Int32(cid) }?.jid
+            }
+        case "subscription_request":
+            out["jid"] = e["jid"]
+        case "roster":
+            out["list"] = (e["list"] as? [[String: Any]] ?? []).map {
+                "\($0["jid"] as? String ?? ""):\($0["subscription"] as? String ?? "")"
+            }
+        case "connection":
+            out["state"] = e["state"]
+        case "chat_state":
+            if let cid = e["conversation"] as? Int {
+                out["jid"] = conversations.first { $0.id == Int32(cid) }?.jid
+            }
+            out["state"] = e["state"]
+        case "occupants":
+            if let cid = e["conversation"] as? Int {
+                out["jid"] = conversations.first { $0.id == Int32(cid) }?.jid
+            }
+            out["nicks"] = (e["list"] as? [[String: Any]] ?? []).compactMap { $0["nick"] as? String }
+        case "avatar":
+            out["jid"] = e["jid"]
+            out["path"] = e["path"]
+        case "muc_invite", "muc_invite_joined", "muc_removed", "room_info":
+            for key in ["room", "inviter", "reason", "message", "subject", "my_affiliation"] { out[key] = e[key] }
+        case "blocklist":
+            out["supported"] = e["supported"]
+            out["list"] = e["list"]
+        case "self_presence":
+            out["show"] = e["show"]
+            out["status"] = e["status"]
+        case "password_changed":
+            break
+        case "error", "connection_error", "muc_invite_failed":
+            out["message"] = e["message"]
+            out["source"] = e["source"]
+        default:
+            return
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]),
+              let line = String(data: data, encoding: .utf8) else { return }
+        NSLog("gecko-live: %@", line)
+    }
+
+    private static let liveTest = ProcessInfo.processInfo.environment["DINO_LIVE_TEST"] != nil
+
+    // Environment-driven automation used by the build scripts to exercise the
+    // stack headlessly in the Simulator.
+    private var autoSent = false
+    private var autoCalled = false
+
+    private func runAutomation() {
+        let env = ProcessInfo.processInfo.environment
+        if let auto = env["DINO_AUTOLOGIN"], let sep = auto.lastIndex(of: ":") {
+            addAccount(jid: String(auto[..<sep]), password: String(auto[auto.index(after: sep)...]))
+        }
+        if env["DINO_AUTOSIGNOUT"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                self?.signOut()
+            }
+        }
+        if let jid = env["DINO_AUTOADDCONTACT"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                self?.addContact(jid: jid, alias: nil)
+            }
+        }
+        // Profile and blocking, for the live script's profile step.
+        if let jid = env["DINO_AUTOBLOCK"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { GeckoCore.shared.blockContact(jid) }
+        }
+        if let jid = env["DINO_AUTOUNBLOCK"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { GeckoCore.shared.unblockContact(jid) }
+        }
+        if let presence = env["DINO_AUTOSTATUS"], let sep = presence.firstIndex(of: ":") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                GeckoCore.shared.setPresence(show: String(presence[..<sep]),
+                                             status: String(presence[presence.index(after: sep)...]))
+            }
+        }
+        if let password = env["DINO_AUTOCHANGEPASSWORD"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { GeckoCore.shared.changePassword(password) }
+        }
+        if env["DINO_AUTOBLOCKLIST"] != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 12) { GeckoCore.shared.requestBlocklist() }
+        }
+        if let jid = env["DINO_AUTOREMOVECONTACT"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                self?.removeContact(jid: jid)
+            }
+        }
+        if let jid = env["DINO_AUTOOPEN"] {
+            let delay = env["DINO_AUTOOPEN_DELAY"].flatMap { Double($0) } ?? 5
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay)) { [weak self] in
+                guard let self, let conv = self.conversations.first(where: { $0.jid == jid }) else { return }
+                self.replaceNavigation(with: [conv.id])
+            }
+        }
+        if let jid = env["DINO_AUTOJOINMUC"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                self?.joinMuc(jid: jid, nick: nil)
+            }
+            if let text = env["DINO_AUTOROOMSEND"] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
+                    guard let self, let room = self.conversations.first(where: { $0.jid == jid && $0.isGroupchat })
+                    else { return }
+                    if env["DINO_AUTOROOMOMEMO"] != nil { self.setEncryption(room.id, omemo: true) }
+                    self.send(room.id, text)
+                }
+            }
+        }
+        if let jid = env["DINO_AUTOCREATEMUC"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { GeckoCore.shared.createMuc(jid: jid, nick: nil) }
+            func room() -> Int32? { conversations.first { $0.jid == jid && $0.isGroupchat }?.id }
+            if let name = env["DINO_AUTOROOMNAME"] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 14) { [weak self] in
+                    if let id = self.flatMap({ _ in room() }) { GeckoCore.shared.mucSetName(id, name: name) }
+                }
+            }
+            if let nick = env["DINO_AUTOROOMKICK"] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 22) { [weak self] in
+                    if let id = self.flatMap({ _ in room() }) { GeckoCore.shared.mucKick(id, nick: nick) }
+                }
+            }
+        }
+        if env["DINO_AUTOJOININVITE"] != nil {
+            // Accept whichever invitation shows first.
+            func poll(_ tries: Int) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                    guard let self else { return }
+                    if let invitation = self.pendingMucInvite {
+                        self.acceptMucInvite(invitation)
+                    } else if tries > 0 {
+                        poll(tries - 1)
+                    }
+                }
+            }
+            poll(40)
+        }
+        if let room = env["DINO_AUTOMUCINVITE"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                guard let self else { return }
+                self.handle([
+                    "type": "muc_invite",
+                    "account": env["DINO_AUTOMUCINVITE_ACCOUNT"]
+                        ?? self.accounts.first?.id
+                        ?? "automation@example.invalid",
+                    "room": room,
+                    "inviter": env["DINO_AUTOMUCINVITE_FROM"] ?? "inviter@example.invalid",
+                    "password": env["DINO_AUTOMUCINVITE_PASSWORD"] ?? "",
+                    "reason": env["DINO_AUTOMUCINVITE_REASON"] ?? "",
+                ])
+            }
+        }
+        if let jid = env["DINO_AUTOCONTACTREQUEST"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                self?.handle(["type": "subscription_request", "jid": jid])
+            }
+        }
+        if let rawConversation = env["DINO_AUTOMUCINVITE_FAILURE_CONVERSATION"],
+           let conversation = Int32(rawConversation),
+           let invitee = env["DINO_AUTOMUCINVITE_FAILURE_TO"] {
+            autoMucInviteFailure = (conversation, invitee)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard self?.autoMucInviteFailure != nil else { return }
+                GeckoCore.shared.appBackgrounded()
+            }
+        }
+        if let reason = env["DINO_AUTOMUCREMOVED"] {
+            let delay = env["DINO_AUTOMUCREMOVED_DELAY"].flatMap { Double($0) } ?? 2
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay)) { [weak self] in
+                guard let self else { return }
+                let room = env["DINO_AUTOMUCREMOVED_ROOM"]
+                let conversation = room.flatMap { room in
+                    self.conversations.first { $0.jid == room }
+                } ?? self.conversations.first { $0.isGroupchat }
+                guard let conversation else { return }
+                self.handle([
+                    "type": "muc_removed",
+                    "conversation": Int(conversation.id),
+                    "account": self.accounts.first?.id ?? "",
+                    "room": conversation.jid,
+                    "reason": reason,
+                ])
+            }
+        }
+        if let jid = env["DINO_AUTOCLOSE"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+                guard let self, let conv = self.conversations.first(where: { $0.jid == jid }) else { return }
+                self.closeConversation(conv.id)
+            }
+        }
+    }
+
+    private func runConnectedAutomation() {
+        let env = ProcessInfo.processInfo.environment
+        if !autoCalled, let jid = env["DINO_AUTOCALL"] {
+            autoCalled = true
+            startConversation(jid: jid)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                guard let self else { return }
+                guard let conv = self.conversations.first(where: { $0.jid.hasPrefix(jid) }) else {
+                    NSLog("gecko-call: DINO_AUTOCALL found no conversation for %@", jid)
+                    return
+                }
+                self.startCall(conversation: conv.id)
+            }
+        }
+        if let service = env["DINO_AUTOPUSH"] {
+            GeckoCore.shared.enablePush(proxyJid: service, node: "live-test-token")
+        }
+        guard !autoSent, let peer = env["DINO_AUTOPEER"] else { return }
+        autoSent = true
+        startConversation(jid: peer)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, let conv = self.conversations.first(where: { $0.jid.hasPrefix(peer) }) else { return }
+            self.replaceNavigation(with: [conv.id])
+            if let omemo = env["DINO_AUTOOMEMO"] {
+                self.setEncryption(conv.id, omemo: omemo != "0")
+            }
+            if let text = env["DINO_AUTOSEND"] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    self.send(conv.id, text)
+                }
+            }
+            if let text = env["DINO_AUTOREPLY"] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                    guard let last = self.messages[conv.id]?.last else { return }
+                    self.send(conv.id, text, replyTo: last.id)
+                }
+            }
+            if let emoji = env["DINO_AUTOREACT"] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                    guard let last = self.messages[conv.id]?.last else { return }
+                    self.setReaction(conv.id, item: last.id, emoji: emoji, add: true)
+                }
+            }
+            if let text = env["DINO_AUTOCORRECT"] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                    guard let last = self.messages[conv.id]?.last(where: { $0.editable }) else { return }
+                    self.correctMessage(conv.id, item: last.id, body: text)
+                }
+            }
+            if env["DINO_AUTOVIEWIMAGE"] != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                    if let img = self.messages[conv.id]?.last(where: { $0.isImage && $0.fileState == "complete" && !$0.path.isEmpty }) {
+                        self.viewerRequest = img.path
+                    }
+                }
+            }
+            if env["DINO_AUTODOWNLOAD"] != nil {
+                let requestedItem = env["DINO_AUTODOWNLOAD_ITEM"].flatMap(Int32.init)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    guard self.navigation.last == conv.id,
+                          let file = self.messages[conv.id]?.last(where: {
+                              $0.canDownloadFile
+                                  && (requestedItem == nil || $0.id == requestedItem)
+                          })
+                    else {
+                        return
+                    }
+                    self.downloadFile(conv.id, item: file.id)
+                }
+            }
+            if let fileFormat = env["DINO_AUTOSENDFILE"] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    if fileFormat.lowercased() == "svg" {
+                        let svg = """
+                            <svg xmlns="http://www.w3.org/2000/svg"
+                                 width="480" height="320" viewBox="0 0 480 320">
+                              <rect width="480" height="320" rx="36" fill="#0f766e"/>
+                              <circle cx="120" cy="160" r="72" fill="#5eead4"/>
+                              <text x="225" y="185" fill="white"
+                                    font-family="system-ui" font-size="72" font-weight="700">SVG</text>
+                            </svg>
+                            """
+                        let url = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("dino-ios-test.svg")
+                        try? svg.write(to: url, atomically: true, encoding: .utf8)
+                        self.sendFile(conv.id, path: url.path)
+                        return
+                    }
+
+                    let renderer = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 160))
+                    let image = renderer.image { ctx in
+                        UIColor.systemTeal.setFill()
+                        ctx.fill(CGRect(x: 0, y: 0, width: 240, height: 160))
+                        ("Dino iOS file test" as NSString).draw(
+                            at: CGPoint(x: 20, y: 70),
+                            withAttributes: [.font: UIFont.boldSystemFont(ofSize: 20), .foregroundColor: UIColor.white])
+                    }
+                    let url = FileManager.default.temporaryDirectory.appendingPathComponent("dino-ios-test.png")
+                    try? image.pngData()?.write(to: url)
+                    self.sendFile(conv.id, path: url.path)
+                }
+            }
+        }
+    }
+}
+
+// avatarPNG(from:) lives in GeckoKit/Sources/GeckoKit/ImageEncoding.swift —
+// compiled into this app module by build-app.sh and tested on the iOS Simulator.

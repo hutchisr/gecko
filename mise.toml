@@ -12,15 +12,15 @@
 
 [tasks.sim]
 description = "Build the app and launch it in the iOS Simulator"
-run = "{{config_root}}/ios/app/build-app.sh run sim-arm64"
+run = "{{config_root}}/scripts/build-app.sh run sim-arm64"
 
 [tasks.build]
 description = "Build the app for the Simulator (no launch)"
-run = "{{config_root}}/ios/app/build-app.sh build sim-arm64"
+run = "{{config_root}}/scripts/build-app.sh build sim-arm64"
 
 [tasks.iphone]
 description = "Build, re-sign, and install on a connected iPhone (default: iPhone 17 Pro)"
-run = "{{config_root}}/ios/app/deploy-phone.sh"
+run = "{{config_root}}/scripts/deploy-phone.sh"
 
 [tasks.testflight]
 description = "Build, sign, and upload to TestFlight (TARGET=device-arm64 or catalyst-arm64)"
@@ -31,13 +31,13 @@ run = """
 creds="{{config_root}}/credentials.local.txt"
 export ASC_KEY_ID="${ASC_KEY_ID:-$(sed -n 's/^ISSUER_KEY_ID=//p' "$creds" 2>/dev/null)}"
 export ASC_ISSUER_ID="${ASC_ISSUER_ID:-$(sed -n 's/^ISSUER_ID=//p' "$creds" 2>/dev/null)}"
-exec "{{config_root}}/ios/app/deploy-testflight.sh" "${TARGET:-device-arm64}"
+exec "{{config_root}}/scripts/deploy-testflight.sh" "${TARGET:-device-arm64}"
 """
 
 [tasks.deps-sim]
 description = "Cross-compile the dependency stack for the Simulator (run once)"
-run = "{{config_root}}/ios/build-deps.sh sim-arm64"
+run = "{{config_root}}/scripts/build-deps.sh sim-arm64"
 
 [tasks.deps-device]
 description = "Cross-compile the dependency stack for device (run once)"
-run = "{{config_root}}/ios/build-deps.sh device-arm64"
+run = "{{config_root}}/scripts/build-deps.sh device-arm64"

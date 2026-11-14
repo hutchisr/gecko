@@ -1,4 +1,4 @@
-<img src="ios/app/AppIcon.png" width="80">
+<img src="App/AppIcon.png" width="80">
 
 # Gecko
 
@@ -63,33 +63,33 @@ or later.
 
 For an iOS Simulator:
 
-    ios/build-deps.sh sim-arm64
-    ios/app/build-app.sh run sim-arm64
+    scripts/build-deps.sh sim-arm64
+    scripts/build-app.sh run sim-arm64
 
 For an Apple Silicon Mac:
 
-    ios/build-deps.sh catalyst-arm64
-    ios/app/build-app.sh run catalyst-arm64
+    scripts/build-deps.sh catalyst-arm64
+    scripts/build-app.sh run catalyst-arm64
 
 `build-deps.sh` builds the few libraries the app links (libomemo-c,
 protobuf-c, GRDB) and fetches the WebRTC framework, in about a minute.
 
 Use `device-arm64` to build for a physical iPhone. Once the matching static
-prefix exists under `ios/prefix/<target>`, you can also open `Gecko.xcodeproj`
+prefix exists under `build/prefix/<target>`, you can also open `Gecko.xcodeproj`
 and build the shared `Gecko` scheme for iPhone, Simulator, or Mac Catalyst.
 
 Unit tests for the XMPP core and the pure Swift helpers run on the host,
 without a Simulator:
 
-    cd ios/app/GeckoKit && swift test
+    cd GeckoKit && swift test
 
 Resources
 ---------
-- [`ios/PORTING.md`](ios/PORTING.md) — how Gecko is built and tested: layout,
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how Gecko is built and tested: layout,
   calls, push and the notification extension, the live two-account script.
-- [`ios/MIGRATION.md`](ios/MIGRATION.md) — how Gecko's XMPP core came to be.
+- [`docs/MIGRATION.md`](docs/MIGRATION.md) — how Gecko's XMPP core came to be.
 - [`AGENTS.md`](AGENTS.md) — orientation for working in this repository.
-- [`ios/PRIVACY.md`](ios/PRIVACY.md), [`ios/app/TESTFLIGHT.md`](ios/app/TESTFLIGHT.md) — privacy and release notes.
+- [`docs/PRIVACY.md`](docs/PRIVACY.md), [`docs/TESTFLIGHT.md`](docs/TESTFLIGHT.md) — privacy and release notes.
 
 License
 -------

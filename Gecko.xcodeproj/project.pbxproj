@@ -264,7 +264,7 @@
 				3611CDF8792E4032A9CA8E9F /* GeckoApp.xcconfig */,
 				BC7D857E140F487AABAAD463 /* NotificationService.xcconfig */,
 			);
-			path = Xcode;
+			path = Config;
 			sourceTree = "<group>";
 		};
 		37BE050813A4493DBBE8EAEC /* GeckoKit/Sources/GeckoKit */ = {
@@ -330,8 +330,11 @@
 		B35DD798FA454C2DB674A63C = {
 			isa = PBXGroup;
 			children = (
-				F839A99D21B243F6A1CBF227 /* ios/app */,
-				EF9EF84CF40648D5ABFD42A0 /* ios/nse */,
+				F839A99D21B243F6A1CBF227 /* App */,
+				EF9EF84CF40648D5ABFD42A0 /* NotificationService */,
+				37BE050813A4493DBBE8EAEC /* GeckoKit/Sources/GeckoKit */,
+				C10000000000000000000041 /* GeckoUITests */,
+				326619595CB94675BE434947 /* Xcode */,
 				841D6DD1A69B405CBFE27820 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -342,7 +345,7 @@
 				C10000000000000000000012 /* ChatVisibilityUITests.swift */,
 				C20000000000000000000002 /* CatalystInteractionUITests.swift */,
 			);
-			path = GeckoUITests;
+			path = UITests;
 			sourceTree = "<group>";
 		};
 		E64F6FA9F6BD468187FD5D32 /* Sources */ = {
@@ -372,10 +375,10 @@
 				A1B2C3D4E5F6478899AA0018 /* ScrollToBottomAnimator.swift */,
 				7B7F5BB0DF3E44EC8A5E8710 /* RoomDetailsView.swift */,
 			);
-			path = Sources;
+			name = Sources;
 			sourceTree = "<group>";
 		};
-		EF9EF84CF40648D5ABFD42A0 /* ios/nse */ = {
+		EF9EF84CF40648D5ABFD42A0 /* NotificationService */ = {
 			isa = PBXGroup;
 			children = (
 				EECED66A6D7B48228F265456 /* NSEFetcher.swift */,
@@ -383,21 +386,18 @@
 				CA95354F18644AA088A235D8 /* Info.plist */,
 				78AE92F169944F9D9A10CA6E /* NotificationService.entitlements */,
 			);
-			path = ios/nse;
+			path = NotificationService;
 			sourceTree = "<group>";
 		};
-		F839A99D21B243F6A1CBF227 /* ios/app */ = {
+		F839A99D21B243F6A1CBF227 /* App */ = {
 			isa = PBXGroup;
 			children = (
 				E64F6FA9F6BD468187FD5D32 /* Sources */,
-				C10000000000000000000041 /* GeckoUITests */,
-				37BE050813A4493DBBE8EAEC /* GeckoKit/Sources/GeckoKit */,
-				326619595CB94675BE434947 /* Xcode */,
 				283D9FF3CA014F1B9E429C76 /* Assets.xcassets */,
 				990D71EE09944E7AA9927B6C /* Info.plist */,
 				10A56DCB1B15485FAE84B1BF /* Gecko.entitlements */,
 			);
-			path = ios/app;
+			path = App;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -533,7 +533,7 @@
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/WebRTC.framework",
 			);
 			shellPath = /bin/sh;
-			shellScript = "set -e\nsrc=\"$GECKO_CORE_PREFIX/Frameworks/WebRTC.framework\"\ndst=\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/WebRTC.framework\"\nif [ ! -d \"$src\" ]; then\n  echo \"error: $src is missing; run ios/build-deps.sh $GECKO_CORE_TARGET webrtc\" >&2\n  exit 1\nfi\nrm -rf \"$dst\"\nmkdir -p \"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH\"\nditto \"$src\" \"$dst\"\nif [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ]; then\n  codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --preserve-metadata=identifier,entitlements,flags \"$dst\"\nfi\n";
+			shellScript = "set -e\nsrc=\"$GECKO_CORE_PREFIX/Frameworks/WebRTC.framework\"\ndst=\"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/WebRTC.framework\"\nif [ ! -d \"$src\" ]; then\n  echo \"error: $src is missing; run scripts/build-deps.sh $GECKO_CORE_TARGET webrtc\" >&2\n  exit 1\nfi\nrm -rf \"$dst\"\nmkdir -p \"$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH\"\nditto \"$src\" \"$dst\"\nif [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ]; then\n  codesign --force --sign \"$EXPANDED_CODE_SIGN_IDENTITY\" --preserve-metadata=identifier,entitlements,flags \"$dst\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

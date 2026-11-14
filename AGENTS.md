@@ -8,7 +8,7 @@ Orientation for AI agents (and humans) working in this repository.
 written in Swift and SwiftUI. It began as a fork of **[Dino](https://dino.im)**
 that kept Dino's Vala/GLib core under a SwiftUI front end; that core has been
 replaced by Gecko's own XMPP core in Swift, and the Vala tree, the C bridge,
-Meson and the GLib stack are gone (`ios/MIGRATION.md` has the history). What
+Meson and the GLib stack are gone (`docs/MIGRATION.md` has the history). What
 remains of Dino is `DinoImport`, which moves a Dino-based install's data into
 the Swift store on first launch. `README.md` is the user-facing intro.
 
@@ -16,7 +16,7 @@ License: the source is **MIT** (`LICENSE`). The app links libomemo-c
 (GPL-3.0), so builds that include it are distributed under the GPL-3.0 as a
 whole; keep new code MIT and dependencies GPL-compatible.
 
-The longer reference is **[`ios/PORTING.md`](ios/PORTING.md)**: layout,
+The longer reference is **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**: layout,
 calls, push and the notification extension, the live test script, UI notes.
 This file is the shorter "how to work here" companion.
 
@@ -24,7 +24,7 @@ This file is the shorter "how to work here" companion.
 
 ```
 ┌─────────────────────────────────────────────┐
-│ SwiftUI app  (ios/app/Sources/*.swift)       │  GeckoApp.swift = the UI
+│ SwiftUI app  (App/*.swift)       │  GeckoApp.swift = the UI
 │   AppModel (Model.swift) ── @Published state │  Model.swift   = state + event decode
 └───────────────▲──────────────┬──────────────┘
                 │ JSON-shaped   │ commands
@@ -44,47 +44,48 @@ This file is the shorter "how to work here" companion.
   `AppModel.handle` decodes.
 - Everything but WebRTC is statically linked (iOS forbids loading unsigned
   dylibs).
-- The notification extension (`ios/nse`) runs `SwiftCore` in its notification
+- The notification extension (`NotificationService`) runs `SwiftCore` in its notification
   mode against the same store and keychain group.
 
 ## Directory map
 
 |Path|What|
 |---|---|
-|`ios/PORTING.md`|**Read first.** The reference: layout, calls, push, NSE, live tests, UI notes.|
-|`ios/MIGRATION.md`|How the Dino core was replaced, phase by phase.|
-|`ios/build-deps.sh`|Builds protobuf-c, libomemo-c, GRDB and fetches WebRTC into `ios/prefix/<target>` (about a minute).|
-|`ios/app/Sources/`|The SwiftUI app. `GeckoApp.swift` (views), `Model.swift` (`AppModel`, event decode), `GeckoCore.swift` (the door to the core), plus per-screen files.|
-|`ios/app/GeckoKit/`|SwiftPM package: the XMPP core (`Sources/GeckoKit/XMPP/`), `COMEMO` (libomemo-c module), and pure helpers. Unit-tested on the host.|
-|`ios/app/GeckoXMPP/`|**Scaffold only** (empty). Nothing depends on it.|
-|`Gecko.xcodeproj`|App + Notification Service Extension targets linking `ios/prefix/<target>`. **Every new GeckoKit source must also be added here, to both targets.**|
-|`ios/app/build-app.sh`|Builds `Gecko.app` (and the extension) with plain `swiftc`; `run` installs and launches in the Simulator.|
-|`ios/app/deploy-phone.sh`|Build + re-sign + install on a physical iPhone via `devicectl`.|
-|`ios/app/deploy-testflight.sh`|Archive + upload to TestFlight.|
-|`ios/nse/`|Notification Service Extension (`NotificationService.swift`, `NSEFetcher.swift`).|
-|`ios/live-test/`|Live two-account check against xmpp.is (`run.sh`).|
-|`ios/push-proxy/`|Standalone MIT-licensed Rust XEP-0357 → APNs proxy, containerized for k8s namespace `gecko`. Run `cargo test --locked` in that directory.|
+|`docs/ARCHITECTURE.md`|**Read first.** The reference: layout, calls, push, NSE, live tests, UI notes.|
+|`docs/MIGRATION.md`|How the Dino core was replaced, phase by phase.|
+|`scripts/build-deps.sh`|Builds protobuf-c, libomemo-c, GRDB and fetches WebRTC into `build/prefix/<target>` (about a minute).|
+|`App/`|The SwiftUI app. `GeckoApp.swift` (views), `Model.swift` (`AppModel`, event decode), `GeckoCore.swift` (the door to the core), plus per-screen files.|
+|`GeckoKit/`|SwiftPM package: the XMPP core (`Sources/GeckoKit/XMPP/`), `COMEMO` (libomemo-c module), and pure helpers. Unit-tested on the host.|
+|`Gecko.xcodeproj`|App + Notification Service Extension targets linking `build/prefix/<target>`. **Every new GeckoKit source must also be added here, to both targets.**|
+|`scripts/build-app.sh`|Builds `Gecko.app` (and the extension) with plain `swiftc`; `run` installs and launches in the Simulator.|
+|`scripts/deploy-phone.sh`|Build + re-sign + install on a physical iPhone via `devicectl`.|
+|`scripts/deploy-testflight.sh`|Archive + upload to TestFlight.|
+|`NotificationService/`|Notification Service Extension (`NotificationService.swift`, `NSEFetcher.swift`).|
+|`tools/live-test/`|Live two-account check against xmpp.is (`run.sh`).|
+|`UITests/`, `Config/`|XCUITest target; the xcconfigs both app targets build with.|
+|`push-proxy/`|Standalone MIT-licensed Rust XEP-0357 → APNs proxy, containerized for k8s namespace `gecko`. Run `cargo test --locked` in that directory.|
+|`build/`|Gitignored: dependency prefixes, sources and app builds.|
 
 ## Build, run, test
 
 ```sh
 # Once per target: the libraries the app links
-ios/build-deps.sh sim-arm64          # or device-arm64, catalyst-arm64
+scripts/build-deps.sh sim-arm64          # or device-arm64, catalyst-arm64
 
 # Build + run in the Simulator
-ios/app/build-app.sh run sim-arm64   # ACTION defaults to "build", TARGET to "sim-arm64"
+scripts/build-app.sh run sim-arm64   # ACTION defaults to "build", TARGET to "sim-arm64"
 
 # Mac (Catalyst)
-ios/app/build-app.sh run catalyst-arm64
+scripts/build-app.sh run catalyst-arm64
 
 # Physical device (phone must be connected; on request only)
-ios/app/deploy-phone.sh "iPhone 18 Pro Max"
+scripts/deploy-phone.sh "iPhone 18 Pro Max"
 
 # Unit tests: host, fast, no Simulator
-cd ios/app/GeckoKit && swift test
+cd GeckoKit && swift test
 
 # Live end-to-end check (one run at a time; name the Simulator)
-GECKO_SIM_DEVICE=<udid> ios/live-test/run.sh [steps…]
+GECKO_SIM_DEVICE=<udid> tools/live-test/run.sh [steps…]
 
 # Lint (config tuned in .swiftlint.yml: bug rules on, style noise off)
 swiftlint
@@ -105,7 +106,7 @@ swiftlint
   intentionally large; trailing commas in multi-line literals are intentional.
 - **Commit messages**: `area: imperative summary — elaboration`, e.g.
   `ios: reserve image row height so chats open pinned to the bottom`,
-  `ios/nse: ...`, `push-proxy: ...`. Body explains the *why*. Commit only when
+  `NotificationService: ...`, `push-proxy: ...`. Body explains the *why*. Commit only when
   asked; work happens on `master`.
 
 ## Working in the Simulator (hard-won operational notes)
@@ -116,7 +117,7 @@ swiftlint
   `DINO_AUTOSENDFILE=1`, `DINO_AUTOOMEMO=1`, `DINO_LOG_XMPP=all` (every stanza
   on the console), `DINO_LIVE_TEST=1` (`gecko-live:` event lines). Defined in
   `Model.swift` (`setupAutomationHooks` / `runConnectedAutomation`); the full
-  list is in `ios/PORTING.md`.
+  list is in `docs/ARCHITECTURE.md`.
 - **Logs**: `NSLog` shows up in `xcrun simctl spawn <udid> log stream
   --predicate 'process == "Gecko"'` and in `simctl launch --console-pty`. The
   extension's log reaches `log show` minutes late; check its effect in the
@@ -143,15 +144,15 @@ Working end to end against real servers: login, roster, presence, one-to-one
 chats with markers, typing, reactions, replies and corrections, OMEMO (legacy
 namespace, via libomemo-c), group chats with moderation and private-room
 OMEMO, HTTP file sharing (encrypted, cancellable, resumable downloads), push
-(XEP-0357 → `ios/push-proxy` → APNs) with on-device fetch in the extension,
+(XEP-0357 → `push-proxy` → APNs) with on-device fetch in the extension,
 and one-to-one voice calls. Not done: video and group calls, ringing while
 closed, OpenPGP, OMEMO 2, CI, and device checks of the extension's budget.
 
 ## Deeper references
 
-- `ios/PORTING.md`, `ios/MIGRATION.md`.
-- `ios/app/TESTFLIGHT.md`, `ios/PRIVACY.md`: release and privacy notes.
-- `ios/push-proxy/README.md`, `ios/nse/`: push subsystem.
+- `docs/ARCHITECTURE.md`, `docs/MIGRATION.md`.
+- `docs/TESTFLIGHT.md`, `docs/PRIVACY.md`: release and privacy notes.
+- `push-proxy/README.md`, `NotificationService/`: push subsystem.
 - Project memory (auto-loaded): memories reflect what was true when written;
   verify a named file or flag still exists before relying on it.
 

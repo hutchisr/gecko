@@ -10,11 +10,11 @@
 # multi-gigabyte generated dependency/build trees; recursively walking the repo
 # root can overflow SwiftLint's file collector before linting begins.
 included:
-  - ios/app/Sources
-  - ios/app/GeckoKit/Package.swift
-  - ios/app/GeckoKit/Sources
-  - ios/app/GeckoKit/Tests
-  - ios/nse
+  - App
+  - GeckoKit/Package.swift
+  - GeckoKit/Sources
+  - GeckoKit/Tests
+  - NotificationService
 
 excluded:
   - "**/.build"      # SwiftPM build dir (GeckoKit) — generated sources
