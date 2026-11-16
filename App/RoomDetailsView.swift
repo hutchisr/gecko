@@ -17,6 +17,8 @@ struct RoomDetailsView: View {
     @State private var topicDraft = ""
     @State private var showPhotoPicker = false
     @StateObject private var avatarSelection = AttachmentSelectionPipeline()
+    /// A picked image waiting to be framed.
+    @State private var pendingAvatar: URL?
     @FocusState private var inviteFocused: Bool
 
     private var occupants: [Occupant] { model.occupants[conversationId] ?? [] }
@@ -71,6 +73,9 @@ struct RoomDetailsView: View {
                     .sharedBackgroundVisibility(.hidden)
                 #endif
             }
+            .navigationDestination(item: $pendingAvatar) { url in
+                AvatarCropView(url: url) { model.setRoomAvatar(conversationId, path: $0) }
+            }
         }
         .onAppear {
             model.requestRoomInfo(conversationId)
@@ -90,7 +95,7 @@ struct RoomDetailsView: View {
             PhotoPicker(
                 allowsVideos: false,
                 pipeline: avatarSelection,
-                onPicked: { url in model.setRoomAvatar(conversationId, path: url.path) },
+                onPicked: { pendingAvatar = $0 },
                 onTooLarge: {
                     model.lastError = AttachmentStaging.tooLargeMessage(noun: "image")
                 },

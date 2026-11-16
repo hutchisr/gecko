@@ -139,6 +139,53 @@ final class CallEngine: NSObject, CallMedia {
         if let s = session { close(media: s.media) }
     }
 
+    // MARK: Ringing
+
+    private var ringer: AVAudioPlayer?
+
+    /// Loops the tone of a ringing call until `stopRinging`.
+    func startRinging(_ tone: CallTone) {
+        guard ringer == nil else { return }
+#if !targetEnvironment(macCatalyst)
+        // An incoming ring obeys the silent switch like any ringer. Ringback is
+        // call audio: the category the call will use, so it plays in the earpiece.
+        let audio = RTCAudioSession.sharedInstance()
+        audio.lockForConfiguration()
+        do {
+            if tone == .incoming {
+                try audio.setCategory(.soloAmbient, mode: .default, options: [])
+            } else {
+                try audio.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP])
+            }
+        } catch {
+            NSLog("gecko-call: ring audio session failed: %@", error.localizedDescription)
+        }
+        audio.unlockForConfiguration()
+#endif
+        do {
+            let player = try AVAudioPlayer(data: tone.wav)
+            player.numberOfLoops = -1
+            ringer = player
+            NSLog("gecko-call: %@ tone playing=%d", String(describing: tone), player.play() ? 1 : 0)
+        } catch {
+            NSLog("gecko-call: ring tone failed: %@", error.localizedDescription)
+        }
+    }
+
+    /// `callOver`: the call ended while it rang, so no media follows to take
+    /// over the audio session and release it afterwards; do that here.
+    func stopRinging(callOver: Bool) {
+        guard let player = ringer else { return }
+        ringer = nil
+        player.stop()
+        NSLog("gecko-call: tone stopped")
+#if !targetEnvironment(macCatalyst)
+        guard callOver else { return }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        restoreAudio()
+#endif
+    }
+
     // MARK: Audio route
 
 #if !targetEnvironment(macCatalyst)

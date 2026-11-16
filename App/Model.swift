@@ -810,6 +810,11 @@ final class AppModel: ObservableObject {
         if info.state == "in_progress", info.startedAt == nil { info.startedAt = Date() }
         guard info != activeCall else { return }
         activeCall = info
+        if info.state == "ringing" {
+            callEngine.startRinging(info.incoming ? .incoming : .outgoing)
+        } else {
+            callEngine.stopRinging(callOver: terminal)
+        }
         if terminal {
             // Media stops now; the card stays a moment so the outcome can be read.
             callEngine.closeAll()
@@ -834,6 +839,7 @@ final class AppModel: ObservableObject {
 
     private func clearCall() {
         activeCall = nil
+        callEngine.stopRinging(callOver: true)
         callMuted = false
         callSpeaker = false
         callEngine.isMuted = false

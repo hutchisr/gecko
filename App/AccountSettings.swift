@@ -10,6 +10,8 @@ struct AccountSettingsView: View {
     @State private var showPhotoPicker = false
     @State private var showImageImporter = false
     @StateObject private var avatarSelection = AttachmentSelectionPipeline()
+    /// A picked image waiting to be framed.
+    @State private var pendingAvatar: URL?
     @State private var aliasSaved = false
     @State private var presenceShow = "online"
     @State private var presenceStatus = ""
@@ -205,7 +207,7 @@ struct AccountSettingsView: View {
                 PhotoPicker(
                     allowsVideos: false,
                     pipeline: avatarSelection,
-                    onPicked: { url in model.setAvatar(path: url.path) },
+                    onPicked: { pendingAvatar = $0 },
                     onTooLarge: {
                         model.lastError = AttachmentStaging.tooLargeMessage(noun: "image")
                     },
@@ -216,7 +218,7 @@ struct AccountSettingsView: View {
                 case .success(let url):
                     avatarSelection.stageImportedFile(
                         url,
-                        onPicked: { model.setAvatar(path: $0.path) },
+                        onPicked: { pendingAvatar = $0 },
                         onTooLarge: {
                             model.lastError = AttachmentStaging.tooLargeMessage(noun: "image")
                         },
@@ -224,6 +226,9 @@ struct AccountSettingsView: View {
                 case .failure(let error):
                     model.lastError = error.localizedDescription
                 }
+            }
+            .navigationDestination(item: $pendingAvatar) { url in
+                AvatarCropView(url: url) { model.setAvatar(path: $0) }
             }
             .onAppear {
                 model.requestAccountDetails()

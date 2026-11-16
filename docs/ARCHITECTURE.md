@@ -102,6 +102,12 @@ artwork by path without replacing the control. The account-avatar
 fixture's `DINO_UI_TEST_AVATAR_UPDATE=1` checks a pink-to-cyan image change;
 the Catalyst interaction regression checks chat switching and Account dismissal.
 
+A picked account or room photo goes through `AvatarCropView` before it is
+published: the image fills a square (shown with the round mask avatars get),
+the user drags to move it and pinches or uses the slider to zoom up to 5×, and
+"Use Photo" writes that square as a PNG of at most 512px. The geometry is the
+pure `AvatarCrop` in GeckoKit, covered by `AvatarCropTests`.
+
 Mac Catalyst uses a persistent desktop lifecycle: it keeps XMPP connected when
 the window is hidden and identifies as a desktop client, and posts local
 notifications only while it is not frontmost (set at launch too). iOS closes
@@ -400,6 +406,7 @@ One-to-one voice calls are written in Swift on the prebuilt WebRTC framework.
 | SDP mapping | `GeckoKit`: `CallSDP.swift` | Between WebRTC's SDP and the values Jingle carries (Opus only). Covered by `CallSDPTests`. |
 | Glue | `App/CallSignaling.swift` | Runs one `CallSession` over the connection, asks the server for STUN/TURN servers (XEP-0215), drives the engine. |
 | Media | `App/CallEngine.swift` | One audio-only `RTCPeerConnection` from the prebuilt WebRTC framework (ICE, DTLS-SRTP, Opus, echo cancellation). `TurnShimProxy` puts a loopback UDP hop in front of each UDP TURN server. |
+| Ring tones | `GeckoKit`: `CallTone.swift`, played by `CallEngine` | While a call rings the caller hears a ringback tone and the callee a ring, both synthesised (no audio files) and looped. On iOS the ring obeys the silent switch; ringback uses the call's own audio category, so it plays in the earpiece. Covered by `CallToneTests`. |
 | TURN shim | `GeckoKit`: `TurnAuthShim.swift` | Makes a TURN server that grants requests without authenticating look authenticated to WebRTC. Covered by `TurnAuthShimTests`. |
 | UI | `App/CallView.swift`, call button in the chat toolbar | Floating call card: incoming prompt, mute, speaker (iOS), hang up. |
 | Stanza passthrough | `SwiftCore` (its Calls section) | `sendStanza` and `{"type":"stanza"}` events: advertises the call features, hands over one-to-one Jingle Message Initiation messages (live, and carbons from our own account) and the Jingle requests of call sessions (tracked by sid), and returns the answers to CallSignaling's requests. Off in the notification extension. |

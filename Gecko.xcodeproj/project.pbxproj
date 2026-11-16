@@ -32,6 +32,8 @@
 		55D32D31712B118A6492BE21 /* StoreQueries.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9AC449C885AD0C43D90256D /* StoreQueries.swift */; };
 		0094C8909A09633697A1F47C /* ChatStanza.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4362BF4EB1A842AEF13BB934 /* ChatStanza.swift */; };
 		BBA94400A616C2B8D73B7FC6 /* CallSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63BBF3FB59A7C256B1BFE70E /* CallSession.swift */; };
+		7C1A5E0D4B2F4C7E9A31D602 /* CallTone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1A5E0D4B2F4C7E9A31D600 /* CallTone.swift */; };
+		7C1A5E0D4B2F4C7E9A31D612 /* AvatarCrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1A5E0D4B2F4C7E9A31D610 /* AvatarCrop.swift */; };
 		5425520D34576D021429B4A4 /* ClipboardWriteGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A0B0A10000000000000002 /* ClipboardWriteGate.swift */; };
 		4E8CC205BA8C0DDE558F2E5B /* LocalNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6478899AA0021 /* LocalNotificationPolicy.swift */; };
 		9F9B4387FAB4A232393D3D8E /* ConversationFocus.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6478899AA0023 /* ConversationFocus.swift */; };
@@ -86,6 +88,8 @@
 		63BBF3FB59A7C256B1BFE709 /* StanzaNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63BBF3FB59A7C256B1BFE70A /* StanzaNode.swift */; };
 		63BBF3FB59A7C256B1BFE70B /* CallJingle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63BBF3FB59A7C256B1BFE70C /* CallJingle.swift */; };
 		63BBF3FB59A7C256B1BFE70D /* CallSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63BBF3FB59A7C256B1BFE70E /* CallSession.swift */; };
+		7C1A5E0D4B2F4C7E9A31D601 /* CallTone.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1A5E0D4B2F4C7E9A31D600 /* CallTone.swift */; };
+		7C1A5E0D4B2F4C7E9A31D611 /* AvatarCrop.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1A5E0D4B2F4C7E9A31D610 /* AvatarCrop.swift */; };
 		65A181F9AA764BE488175CB1 /* NSEFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = EECED66A6D7B48228F265456 /* NSEFetcher.swift */; };
 		67D47FF8799E4FC7B8C5DFF1 /* DisplayFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = D928D500119B41A89B21FCEA /* DisplayFormatters.swift */; };
 		6C8B8E0B889046EE97952996 /* MessageFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0556F003C354589BE42AF2E /* MessageFormatting.swift */; };
@@ -104,6 +108,7 @@
 		A1B2C3D4E5F6478899AA0025 /* MediaFileKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6478899AA0026 /* MediaFileKind.swift */; };
 		A1B2C3D4E5F6478899AA0027 /* MucRemoval.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6478899AA0028 /* MucRemoval.swift */; };
 		B1872E1853A14959B41C6F76 /* AccountSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C80496BD1D274570886D3D80 /* AccountSettings.swift */; };
+		7C1A5E0D4B2F4C7E9A31D621 /* AvatarCropView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C1A5E0D4B2F4C7E9A31D620 /* AvatarCropView.swift */; };
 		B674DCCC40514D13928F9F65 /* ReactionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C1D9EA0EDF44844A6F4B60E /* ReactionSheet.swift */; };
 		B7ADDE41EBF745308582B887 /* BlockedContactsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C377EE663CA4986A7BD5314 /* BlockedContactsView.swift */; };
 		BC08A0C6135F49AFB5C4B2BD /* GeckoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF917E5E610B459F97F0C3BC /* GeckoApp.swift */; };
@@ -195,6 +200,8 @@
 		63BBF3FB59A7C256B1BFE70A /* StanzaNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StanzaNode.swift; sourceTree = "<group>"; };
 		63BBF3FB59A7C256B1BFE70C /* CallJingle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallJingle.swift; sourceTree = "<group>"; };
 		63BBF3FB59A7C256B1BFE70E /* CallSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallSession.swift; sourceTree = "<group>"; };
+		7C1A5E0D4B2F4C7E9A31D600 /* CallTone.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallTone.swift; sourceTree = "<group>"; };
+		7C1A5E0D4B2F4C7E9A31D610 /* AvatarCrop.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarCrop.swift; sourceTree = "<group>"; };
 		6C377EE663CA4986A7BD5314 /* BlockedContactsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockedContactsView.swift; sourceTree = "<group>"; };
 		78AE92F169944F9D9A10CA6E /* NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NotificationService.entitlements; sourceTree = "<group>"; };
 		7B7F5BB0DF3E44EC8A5E8710 /* RoomDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomDetailsView.swift; sourceTree = "<group>"; };
@@ -226,6 +233,7 @@
 		C1A0B0A10000000000000002 /* ClipboardWriteGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardWriteGate.swift; sourceTree = "<group>"; };
 		C20000000000000000000002 /* CatalystInteractionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalystInteractionUITests.swift; sourceTree = "<group>"; };
 		C80496BD1D274570886D3D80 /* AccountSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSettings.swift; sourceTree = "<group>"; };
+		7C1A5E0D4B2F4C7E9A31D620 /* AvatarCropView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarCropView.swift; sourceTree = "<group>"; };
 		CA95354F18644AA088A235D8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		CC4995212FE5F1CF00DDC42B /* SwiftUIMessageList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SwiftUIMessageList.swift; sourceTree = "<group>"; };
 		D1A0B0010000000000000001 /* UnreadBadgeCount.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UnreadBadgeCount.swift; sourceTree = "<group>"; };
@@ -295,6 +303,8 @@
 				D9AC449C885AD0C43D90256D /* StoreQueries.swift */,
 				4362BF4EB1A842AEF13BB934 /* ChatStanza.swift */,
 				63BBF3FB59A7C256B1BFE70E /* CallSession.swift */,
+				7C1A5E0D4B2F4C7E9A31D600 /* CallTone.swift */,
+				7C1A5E0D4B2F4C7E9A31D610 /* AvatarCrop.swift */,
 				C1A0B0A10000000000000002 /* ClipboardWriteGate.swift */,
 				A1B2C3D4E5F6478899AA0021 /* LocalNotificationPolicy.swift */,
 				A1B2C3D4E5F6478899AA0023 /* ConversationFocus.swift */,
@@ -353,6 +363,7 @@
 			children = (
 				CC4995212FE5F1CF00DDC42B /* SwiftUIMessageList.swift */,
 				C80496BD1D274570886D3D80 /* AccountSettings.swift */,
+				7C1A5E0D4B2F4C7E9A31D620 /* AvatarCropView.swift */,
 				6C377EE663CA4986A7BD5314 /* BlockedContactsView.swift */,
 				63BBF3FB59A7C256B1BFE702 /* CallEngine.swift */,
 				C7FA002959FFA39FA901CA73 /* KeychainPasswords.swift */,
@@ -568,6 +579,8 @@
 				55D32D31712B118A6492BE21 /* StoreQueries.swift in Sources */,
 				0094C8909A09633697A1F47C /* ChatStanza.swift in Sources */,
 				BBA94400A616C2B8D73B7FC6 /* CallSession.swift in Sources */,
+				7C1A5E0D4B2F4C7E9A31D602 /* CallTone.swift in Sources */,
+				7C1A5E0D4B2F4C7E9A31D612 /* AvatarCrop.swift in Sources */,
 				5425520D34576D021429B4A4 /* ClipboardWriteGate.swift in Sources */,
 				4E8CC205BA8C0DDE558F2E5B /* LocalNotificationPolicy.swift in Sources */,
 				9F9B4387FAB4A232393D3D8E /* ConversationFocus.swift in Sources */,
@@ -593,6 +606,7 @@
 			isa = PBXSourcesBuildPhase;
 			files = (
 				B1872E1853A14959B41C6F76 /* AccountSettings.swift in Sources */,
+				7C1A5E0D4B2F4C7E9A31D621 /* AvatarCropView.swift in Sources */,
 				B7ADDE41EBF745308582B887 /* BlockedContactsView.swift in Sources */,
 				63BBF3FB59A7C256B1BFE701 /* CallEngine.swift in Sources */,
 				79128E8409A9E768E4F76789 /* KeychainPasswords.swift in Sources */,
@@ -637,6 +651,8 @@
 				D536280639AF4453AAAEFE3D /* StoreQueries.swift in Sources */,
 				20F01F2F3BE45C1A4B763523 /* ChatStanza.swift in Sources */,
 				63BBF3FB59A7C256B1BFE70D /* CallSession.swift in Sources */,
+				7C1A5E0D4B2F4C7E9A31D601 /* CallTone.swift in Sources */,
+				7C1A5E0D4B2F4C7E9A31D611 /* AvatarCrop.swift in Sources */,
 				63BBF3FB59A7C256B1BFE709 /* StanzaNode.swift in Sources */,
 				A1B2C3D4E5F6478899AA0007 /* BottomScrollAnimation.swift in Sources */,
 				A1B2C3D4E5F6478899AA0008 /* ScrollToBottomAnimator.swift in Sources */,
