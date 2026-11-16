@@ -14,7 +14,7 @@ DD="$REPO/build/shots"
 OUT="${GECKO_SHOTS_OUT:-$REPO/build/screenshots}"
 BUNDLE=me.anemoneya.gecko
 # screen name -> conversation to open ("" = conversation list)
-SCREENS=("list:" "chat:maya@example.org" "group:weekend-hike@conference.example.org")
+SCREENS=("list:" "chat:tokay@example.org" "group:basking-rock@conference.example.org")
 # The chat photo: "Snowy mountain reflection (Unsplash).jpg", CC0, Wikimedia Commons.
 PHOTO="$DD/lake.jpg"
 mkdir -p "$DD"

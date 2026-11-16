@@ -2287,19 +2287,19 @@ extension AppModel {
     fileprivate func installShowcaseFixture() {
         let now = Calendar.current.date(bySettingHour: 9, minute: 41, second: 0, of: Date()) ?? Date()
         func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
-        let me = "alex@example.org"
-        let maya = "maya@example.org", leo = "leo@example.org"
-        let hike = "weekend-hike@conference.example.org"
+        let me = "anole@example.org"
+        let tokay = "tokay@example.org", crestie = "crestie@example.org"
+        let rock = "basking-rock@conference.example.org"
         isUITestFixture = true
         ready = true
         accounts = [XmppAccount(id: me, state: "connected")]
-        accountAlias = "Alex"
+        accountAlias = "Anole"
         roster = [
-            RosterContact(id: maya, name: "Maya Chen", subscription: "both", show: "online"),
-            RosterContact(id: leo, name: "Leo Martins", subscription: "both", show: "away"),
-            RosterContact(id: "sam@example.org", name: "Sam Okafor", subscription: "both", show: "offline"),
-            RosterContact(id: "nora@example.org", name: "Nora Lindqvist", subscription: "both", show: "online"),
-            RosterContact(id: "dad@example.org", name: "Dad", subscription: "both", show: "dnd"),
+            RosterContact(id: tokay, name: "Tokay", subscription: "both", show: "online"),
+            RosterContact(id: crestie, name: "Crestie", subscription: "both", show: "away"),
+            RosterContact(id: "skink@example.org", name: "Skink", subscription: "both", show: "offline"),
+            RosterContact(id: "iguana@example.org", name: "Iguana", subscription: "both", show: "online"),
+            RosterContact(id: "komodo@example.org", name: "Komodo", subscription: "both", show: "dnd"),
         ]
         func chat(_ id: Int32, _ jid: String, _ name: String, group: Bool = false, unread: Int = 0,
                   _ preview: String, out: Bool = false, _ minutes: Double) -> XmppConversation {
@@ -2309,25 +2309,25 @@ extension AppModel {
                 preview: preview, previewDirection: out ? "out" : "in", time: ago(minutes))
         }
         updateConversations([
-            chat(1, maya, "Maya Chen", "🙌", 1),
-            chat(2, hike, "Weekend Hike", group: true,
-                 unread: ProcessInfo.processInfo.environment["DINO_UI_TEST_OPEN_JID"] == hike ? 0 : 4,
-                 "Jonas: I'll bring the thermos ☕️", 14),
-            chat(3, leo, "Leo Martins", unread: 1, "Sent a photo", 58),
-            chat(4, "book-club@conference.example.org", "Book Club", group: true,
-                 "Priya: Chapter 7 was wild", 60 * 20),
-            chat(5, "sam@example.org", "Sam Okafor", "Thanks, that worked!", out: true, 60 * 26),
-            chat(6, "nora@example.org", "Nora Lindqvist", "Happy birthday!! 🎂", 60 * 50),
+            chat(1, tokay, "Tokay", "🙌", 1),
+            chat(2, rock, "Basking Rock", group: true,
+                 unread: ProcessInfo.processInfo.environment["DINO_UI_TEST_OPEN_JID"] == rock ? 0 : 4,
+                 "Monitor: I'll bring the thermos ☕️", 14),
+            chat(3, crestie, "Crestie", unread: 1, "Sent a photo", 58),
+            chat(4, "terrarium-club@conference.example.org", "Terrarium Club", group: true,
+                 "Basilisk: Chapter 7 was wild", 60 * 20),
+            chat(5, "skink@example.org", "Skink", "Thanks, that worked!", out: true, 60 * 26),
+            chat(6, "iguana@example.org", "Iguana", "Happy birthday!! 🎂", 60 * 50),
             chat(7, "community@conference.example.org", "Gecko Community", group: true,
                  "Welcome aboard! 👋", 60 * 75),
-            chat(8, "dad@example.org", "Dad", "Call me when you're free", 60 * 120),
-            chat(9, "ines@example.org", "Inês Duarte", "Sent a voice message", 60 * 150),
-            chat(10, "climbing@conference.example.org", "Climbing Crew", group: true,
-                 "Tom: Gym's open late on Thursday", 60 * 190),
+            chat(8, "komodo@example.org", "Komodo", "Call me when you're free", 60 * 120),
+            chat(9, "chameleon@example.org", "Chameleon", "Sent a voice message", 60 * 150),
+            chat(10, "wall-climbers@conference.example.org", "Wall Climbers", group: true,
+                 "Tuatara: Gym's open late on Thursday", 60 * 190),
         ])
-        occupants[2] = [("Alex", me, true), ("Jonas", "jonas@example.org", false),
-                        ("Priya", "priya@example.org", false), ("Maya", maya, false)].map {
-            Occupant(nick: $0.0, jid: "\(hike)/\($0.0)", realJid: $0.1, isSelf: $0.2,
+        occupants[2] = [("Anole", me, true), ("Monitor", "monitor@example.org", false),
+                        ("Basilisk", "basilisk@example.org", false), ("Tokay", tokay, false)].map {
+            Occupant(nick: $0.0, jid: "\(rock)/\($0.0)", realJid: $0.1, isSelf: $0.2,
                      affiliation: $0.2 ? "owner" : "member", role: $0.2 ? "moderator" : "participant")
         }
         roomInfo[2] = RoomInfo(subject: "Saturday: ridge trail 🥾", isPrivate: true,
@@ -2351,32 +2351,32 @@ extension AppModel {
                         marked: "read")
         }
         messages[1] = [
-            msg(1, from: maya, "Maya Chen", "Are we still on for the gallery tomorrow?", 42),
+            msg(1, from: tokay, "Tokay", "Are we still on for the gallery tomorrow?", 42),
             msg(2, from: nil, "", "Absolutely! The new photography exhibit opens at 10.", 40),
-            msg(3, from: maya, "Maya Chen", "Perfect. There's a café right by the lake, look at this view:", 31),
-            image(4, from: maya, "Maya Chen", 31),
+            msg(3, from: tokay, "Tokay", "Perfect. There's a café right by the lake, look at this view:", 31),
+            image(4, from: tokay, "Tokay", 31),
             msg(5, from: nil, "", "Wow, that's gorgeous 😍 Brunch first then?", 28,
                 reactions: [Reaction(emoji: "❤️", count: 1, me: false)]),
-            msg(6, from: maya, "Maya Chen", "Deal. Train or bike?", 9),
+            msg(6, from: tokay, "Tokay", "Deal. Train or bike?", 9),
             msg(7, from: nil, "", "Train, it's supposed to rain. See you at the station at 9 🚆", 3,
-                quote: QuoteRef(item: 6, from: "Maya Chen", body: "Deal. Train or bike?")),
-            msg(8, from: maya, "Maya Chen", "🙌", 1),
+                quote: QuoteRef(item: 6, from: "Tokay", body: "Deal. Train or bike?")),
+            msg(8, from: tokay, "Tokay", "🙌", 1),
         ]
-        let jonas = "\(hike)/Jonas", priya = "\(hike)/Priya", mayaNick = "\(hike)/Maya"
+        let monitor = "\(rock)/Monitor", basilisk = "\(rock)/Basilisk", tokayNick = "\(rock)/Tokay"
         messages[2] = [
-            msg(1, from: jonas, "Jonas", "Forecast says clear skies on Saturday ☀️", 95, omemo: false),
-            msg(2, from: priya, "Priya", "Lake loop (12 km) or the ridge trail (18 km)?", 90, omemo: false),
+            msg(1, from: monitor, "Monitor", "Forecast says clear skies on Saturday ☀️", 95, omemo: false),
+            msg(2, from: basilisk, "Basilisk", "Lake loop (12 km) or the ridge trail (18 km)?", 90, omemo: false),
             msg(3, from: nil, "", "Ridge! The view from the top is worth every step", 86, omemo: false,
                 reactions: [Reaction(emoji: "👍", count: 2, me: false)]),
-            msg(4, from: mayaNick, "Maya", "Here's the lake from the summit last spring", 60, omemo: false),
-            image(5, from: mayaNick, "Maya", 60, omemo: false,
+            msg(4, from: tokayNick, "Tokay", "Here's the lake from the summit last spring", 60, omemo: false),
+            image(5, from: tokayNick, "Tokay", 60, omemo: false,
                   reactions: [Reaction(emoji: "😍", count: 3, me: true)]),
-            msg(6, from: jonas, "Jonas", "Okay, that settles it 😄", 41, omemo: false),
-            msg(7, from: priya, "Priya", "Meet at the trailhead at 8:00?", 22, omemo: false),
+            msg(6, from: monitor, "Monitor", "Okay, that settles it 😄", 41, omemo: false),
+            msg(7, from: basilisk, "Basilisk", "Meet at the trailhead at 8:00?", 22, omemo: false),
             msg(8, from: nil, "", "8:00 works. I'm driving, three seats free 🚗", 18, omemo: false,
                 reactions: [Reaction(emoji: "🙌", count: 2, me: false)],
-                quote: QuoteRef(item: 7, from: "Priya", body: "Meet at the trailhead at 8:00?")),
-            msg(9, from: jonas, "Jonas", "I'll bring the thermos ☕️", 14, omemo: false),
+                quote: QuoteRef(item: 7, from: "Basilisk", body: "Meet at the trailhead at 8:00?")),
+            msg(9, from: monitor, "Monitor", "I'll bring the thermos ☕️", 14, omemo: false),
         ]
         for id in messages.keys { messageRevisions[id, default: 0] += 1 }
     }
