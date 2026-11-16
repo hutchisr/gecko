@@ -829,6 +829,7 @@ private enum GeckoPreviewFixtures {
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
@@ -877,16 +878,21 @@ struct RootView: View {
 
 #if !targetEnvironment(macCatalyst)
             if let item = model.mediaViewerItem {
-                switch item {
-                case .image(let path):
-                    ImageViewer(path: path) {
-                        model.mediaViewerItem = nil
-                    }
-                case .video(let path):
-                    VideoViewer(path: path) {
-                        model.mediaViewerItem = nil
+                // Opens in place; closing slides it off the bottom, the way
+                // the swipe that dismisses it points.
+                let close = { withAnimation(.snappy(duration: 0.25)) { model.mediaViewerItem = nil } }
+                Group {
+                    switch item {
+                    case .image(let path):
+                        ImageViewer(path: path, onDismiss: close)
+                    case .video(let path):
+                        VideoViewer(path: path, onDismiss: close)
                     }
                 }
+                .transition(.asymmetric(
+                    insertion: .identity,
+                    removal: reduceMotion ? .opacity : .move(edge: .bottom)))
+                .zIndex(1)
             }
 #endif
         }
@@ -1866,6 +1872,10 @@ struct ChatView: View {
 #if targetEnvironment(macCatalyst)
         openWindow(id: MediaViewerItem.windowGroupID, value: item)
 #else
+        // The viewer is an overlay, not a presentation, so nothing else
+        // takes the keyboard down from under it.
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         model.mediaViewerItem = item
 #endif
     }
