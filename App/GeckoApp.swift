@@ -138,34 +138,41 @@ private final class CatalystDelegateObserver: NSObject {
 enum CatalystWindowLifecycle {
     private static var proxies: [ObjectIdentifier: CatalystWindowDelegateProxy] = [:]
     private static var applicationProxy: CatalystApplicationDelegateProxy?
-    private static var activationObserver: NSObjectProtocol?
+    private static var activationObservers: [NSObjectProtocol] = []
     private static let delegateObserver = CatalystDelegateObserver()
     private static var hiddenWindow: NSObject?
     private static var reopening = false
-    private static var visibilityHandler: ((Bool) -> Void)?
+    private static var activityHandler: ((Bool) -> Void)?
 
     static var isVisible: Bool { hiddenWindow == nil }
 
-    static func setVisibilityHandler(_ handler: @escaping (Bool) -> Void) {
-        visibilityHandler = handler
-        handler(isVisible)
+    /// The chat window is on screen and Gecko is the frontmost app. Asks
+    /// AppKit: on Catalyst neither SwiftUI's scenePhase nor
+    /// `UIApplication.applicationState` changes when another app comes forward.
+    static var isActive: Bool {
+        isVisible && (application?.value(forKey: "active") as? Bool ?? true)
+    }
+
+    private static var application: NSObject? {
+        (NSClassFromString("NSApplication") as? NSObject.Type)?
+            .perform(NSSelectorFromString("sharedApplication"))?
+            .takeUnretainedValue() as? NSObject
+    }
+
+    static func setActivityHandler(_ handler: @escaping (Bool) -> Void) {
+        activityHandler = handler
+        handler(isActive)
     }
 
     static func install() {
-        guard let applicationClass = NSClassFromString("NSApplication") as? NSObject.Type,
-              let application = applicationClass
-                .perform(NSSelectorFromString("sharedApplication"))?
-                .takeUnretainedValue() as? NSObject
-        else {
-            return
-        }
+        guard let application else { return }
 
         installApplicationProxy(on: application)
-        if activationObserver == nil {
+        if activationObservers.isEmpty {
             // An ordered-out Catalyst scene may never produce another UIKit
             // activation callback. Observe the native application independently
             // of its delegate, which the framework can replace after install.
-            activationObserver = NotificationCenter.default.addObserver(
+            activationObservers.append(NotificationCenter.default.addObserver(
                 forName: Notification.Name("NSApplicationDidBecomeActiveNotification"),
                 object: application, queue: .main
             ) { notification in
@@ -173,10 +180,19 @@ enum CatalystWindowLifecycle {
                     guard let application = notification.object as? NSObject else { return }
                     installApplicationProxy(on: application)
                     reopenIfNeeded()
+                    activityHandler?(isActive)
                 }
-            }
+            })
+            activationObservers.append(NotificationCenter.default.addObserver(
+                forName: Notification.Name("NSApplicationDidResignActiveNotification"),
+                object: application, queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { activityHandler?(isActive) }
+            })
             application.addObserver(delegateObserver, forKeyPath: "delegate", options: [], context: nil)
         }
+        // An activation before these observers existed went unseen.
+        activityHandler?(isActive)
 
         // Only the primary chat window should hide instead of closing. Media
         // windows are real secondary scenes and must be allowed to close and
@@ -222,7 +238,7 @@ enum CatalystWindowLifecycle {
     static func hideInsteadOfClosing(_ window: NSObject) {
         CatalystWindowSize.save()
         hiddenWindow = window
-        visibilityHandler?(false)
+        activityHandler?(false)
         window.perform(NSSelectorFromString("orderOut:"), with: nil)
 #if DEBUG
         // Exercise activation independently of our runtime delegate proxy.
@@ -265,7 +281,7 @@ enum CatalystWindowLifecycle {
         guard window.value(forKey: "visible") as? Bool == true else { return false }
         hiddenWindow = nil
         PushRegistration.clearDeliveredNotifications()
-        visibilityHandler?(true)
+        activityHandler?(isActive)
         return true
     }
 }
@@ -322,15 +338,10 @@ struct GeckoApp: App {
                 model.setApplicationActive(scenePhase == .active)
                 AppDelegate.setOpenHandler { jid in model.openChat(with: jid) }
 #if targetEnvironment(macCatalyst)
-                // The scene may start out active, which `onChange(of: scenePhase)`
-                // never reports: without this, banners showed while Gecko was frontmost.
-                setDesktopActive(scenePhase == .active && CatalystWindowLifecycle.isVisible)
+                // Reports the current state at once: the scene may start out
+                // active, which `onChange(of: scenePhase)` never reports.
+                CatalystWindowLifecycle.setActivityHandler(setDesktopActive)
                 configureDesktopWindow()
-                CatalystWindowLifecycle.setVisibilityHandler { visible in
-                    setDesktopActive(
-                        visible && UIApplication.shared.applicationState == .active
-                    )
-                }
 #endif
             }
     }
@@ -435,7 +446,7 @@ struct GeckoApp: App {
                 }
         }
         .onChange(of: scenePhase) { _, phase in
-            setDesktopActive(phase == .active && CatalystWindowLifecycle.isVisible)
+            setDesktopActive(phase == .active && CatalystWindowLifecycle.isActive)
             if phase != .active {
                 CatalystWindowSize.save()
             }

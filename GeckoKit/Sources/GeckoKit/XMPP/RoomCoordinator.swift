@@ -49,6 +49,8 @@ final class RoomCoordinator {
     var decrypt: ((StanzaNode, String, Bool) -> String?)?
     /// A stored room message that only shares a file (item, conversation, link).
     var onFile: ((Int64, Int64, String) -> Void)?
+    /// A message was stored in this conversation (after its item event).
+    var onStored: ((Int64) -> Void)?
     private var rooms: [String: Room] = [:]
 
     /// `changed(item, synced)`: a stored message (or, with nil, the conversation
@@ -412,7 +414,7 @@ final class RoomCoordinator {
                                arguments: [room.occupants[nick]?.realJID, item])
             }
             changed(item, synced: m.archived)
-            changed(nil)
+            onStored?(room.conversation)
         }
         return true
     }

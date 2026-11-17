@@ -57,6 +57,7 @@ final class SwiftCore {
         }
         rooms.onJoined = { [weak self] conversation in self?.flushRoom(conversation) }
         rooms.onFile = { [weak self] item, conversation, link in self?.shareFile(item, conversation: conversation, link: link) }
+        rooms.onStored = { [weak self] conversation in self?.stored(in: conversation) }
         rooms.decrypt = { [weak self] encrypted, sender, live in
             guard let self, let account = self.firstAccount,
                   case .text(let text)? = self.omemo[account]?.decrypt(encrypted, from: sender, live: live) else { return nil }
@@ -1376,8 +1377,7 @@ final class SwiftCore {
                 }
             }
             emitItem(item, synced: m.archived)
-            if focused == conversation { markRead(conversation) }
-            pushConversations()
+            stored(in: conversation)
         } catch {
             fail("\(error)")
         }
@@ -1395,6 +1395,12 @@ final class SwiftCore {
         emitItem(id)
     }
 
+    /// A new message is in: the chat on screen has read it at once.
+    private func stored(in conversation: Int64) {
+        if focused == conversation { markRead(conversation) }
+        pushConversations()
+    }
+
     private func markRead(_ conversation: Int64) {
         let last = try? store.db.read { db in
             try Int64.fetchOne(db, sql: "SELECT max(id) FROM message WHERE conversation = ?", arguments: [conversation])
@@ -1407,7 +1413,9 @@ final class SwiftCore {
 
     /// Tells the peer we have seen their newest message (XEP-0333).
     private func sendDisplayed(_ conversation: Int64) {
-        guard privacy("send_marker"), let (_, jid, client) = chat(conversation) else { return }
+        // Rooms take no one-to-one marker (type "chat" to the room's bare JID).
+        guard privacy("send_marker"), let (_, jid, client) = chat(conversation),
+              ((try? store.conversationRow(conversation))??["kind"] as String?) != "groupchat" else { return }
         let newest = try? store.db.read { db in
             try Row.fetchOne(db, sql: """
                 SELECT id, originID FROM message WHERE conversation = ? AND direction = 'in' AND originID IS NOT NULL

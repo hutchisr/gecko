@@ -110,7 +110,11 @@ pure `AvatarCrop` in GeckoKit, covered by `AvatarCropTests`.
 
 Mac Catalyst uses a persistent desktop lifecycle: it keeps XMPP connected when
 the window is hidden and identifies as a desktop client, and posts local
-notifications only while it is not frontmost (set at launch too). iOS closes
+notifications only while it is not frontmost (set at launch too). "Frontmost"
+comes from AppKit's activation notifications (`CatalystWindowLifecycle.isActive`):
+on Catalyst SwiftUI's `scenePhase` and `UIApplication.applicationState` stay
+active when another app comes forward. The same signal blurs the open chat,
+so messages count as unread until the window is back in front. iOS closes
 its streams cleanly 3 s after going to the background (inside a background
 task) and reconnects on return: with no session held, messages wait in offline
 storage and the archive and push as usual, while copies of what we send from
