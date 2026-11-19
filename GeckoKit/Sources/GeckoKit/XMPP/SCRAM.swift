@@ -21,11 +21,10 @@ struct SCRAM {
 
     init(hash: Hash, username: String, password: String, clientNonce: String = SCRAM.randomNonce()) {
         self.hash = hash
-        // ponytail: SASLprep (RFC 4013) approximated as NFKC; full prohibited/bidi tables skipped.
-        let user = username.precomposedStringWithCompatibilityMapping
+        let user = Self.saslprep(username)
             .replacingOccurrences(of: "=", with: "=3D")
             .replacingOccurrences(of: ",", with: "=2C")
-        self.password = password.precomposedStringWithCompatibilityMapping
+        self.password = Self.saslprep(password)
         self.clientNonce = clientNonce
         clientFirstBare = "n=\(user),r=\(clientNonce)"
     }
@@ -73,6 +72,24 @@ struct SCRAM {
     /// Strongest mechanism both sides offer (SHA-512, then 256, then 1), nil when none.
     static func best(offered: [String]) -> Hash? {
         [Hash.sha512, .sha256, .sha1].first { offered.contains($0.rawValue) }
+    }
+
+    // shortcut: no prohibited-output or bidi check (§2.3, §2.4), and NFKC is
+    // today's Unicode rather than 3.2; add the tables if a login fails on either.
+    /// SASLprep (RFC 4013 §2.1, §2.2): map, then NFKC. U+200B is in both
+    /// tables and becomes a space, the mapping listed first (as libidn has it).
+    private static func saslprep(_ text: String) -> String {
+        var mapped = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            // RFC 3454 C.1.2, non-ASCII spaces.
+            case 0x00A0, 0x1680, 0x2000...0x200B, 0x202F, 0x205F, 0x3000: mapped.append(" ")
+            // RFC 3454 B.1, commonly mapped to nothing.
+            case 0x00AD, 0x034F, 0x1806, 0x180B...0x180D, 0x200C, 0x200D, 0x2060, 0xFE00...0xFE0F, 0xFEFF: break
+            default: mapped.append(scalar)
+            }
+        }
+        return String(mapped).precomposedStringWithCompatibilityMapping
     }
 
     /// Parses `k=v,k=v` into a map keyed by the single-letter attribute name.

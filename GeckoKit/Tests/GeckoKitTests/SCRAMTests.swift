@@ -66,6 +66,18 @@ final class SCRAMTests: XCTestCase {
         XCTAssertEqual(s.clientFirst, d("n,,n=a=3Db=2Cc,r=n"))
     }
 
+    func testSASLprep() throws {
+        // RFC 5802's exchange again, with characters that map to nothing.
+        var s = SCRAM(hash: .sha1, username: "us\u{00AD}er", password: "pen\u{200D}cil\u{FE0F}",
+                      clientNonce: "fyko+d2lbbFgONRv9qkxdawL")
+        XCTAssertEqual(s.clientFirst, d("n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL"))
+        let final = try s.clientFinal(serverFirst: d("r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096"))
+        XCTAssertEqual(final, d("c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts="))
+        // Non-ASCII spaces become a space; NFKC then makes U+00AA "a" and U+2168 "IX" (RFC 4013 §3).
+        let spaced = SCRAM(hash: .sha1, username: "a\u{1680}b\u{200B}\u{00AA}\u{2168}", password: "p", clientNonce: "n")
+        XCTAssertEqual(spaced.clientFirst, d("n,,n=a b aIX,r=n"))
+    }
+
     func testBest() {
         XCTAssertEqual(SCRAM.best(offered: ["PLAIN", "SCRAM-SHA-1", "SCRAM-SHA-256"]), .sha256)
         XCTAssertEqual(SCRAM.best(offered: ["SCRAM-SHA-512", "SCRAM-SHA-1"]), .sha512)
