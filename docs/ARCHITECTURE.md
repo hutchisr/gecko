@@ -94,6 +94,11 @@ Catalyst's standalone sheet Close and Add buttons use `.buttonStyle(.glass)`
 with the toolbar's shared background hidden, so the visible circle is the
 interactive control rather than a larger decorative toolbar background.
 Four-point label padding restores the roughly 36-point toolbar height.
+Account settings and Room details are panes, not sheets: each is pushed with
+`navigationDestination(isPresented:)`, onto the one stack on iOS and onto the
+stack in the split view's detail column on Catalyst, so the chat underneath
+keeps its draft. Escape goes back (`escapeGoesBack()`), and opening a
+conversation leaves Settings.
 The Catalyst Account toolbar item uses a native `UIButton` with live SwiftUI
 artwork via `UIHostingConfiguration`: toolbar label extraction otherwise reduces
 the avatar to its initial or drops asynchronously loaded artwork and the status
@@ -208,7 +213,7 @@ without starting the core or accessing an account.
 
 `testRoomDetailsSeparatesOnlineAndOfflineMembers` uses
 `DINO_UI_TEST_ROOM_MEMBERS=1` with that fixture to open a group chat's Room
-Details sheet and verify distinct online-participant and offline-member sections.
+details pane and verify distinct online-participant and offline-member sections.
 Offline rows open the same member-details screen as online participants, with
 direct messaging, affiliation changes, and bans subject to the same owner/admin
 permissions. Kick and voice controls remain online-only. Offline actions target

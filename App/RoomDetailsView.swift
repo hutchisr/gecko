@@ -6,9 +6,8 @@ struct RoomDetailsView: View {
     @EnvironmentObject var model: AppModel
     let conversationId: Int32
     /// Called with a member's JID when "Message" is chosen; the parent
-    /// dismisses the sheet and opens the DM.
+    /// leaves this pane and opens the DM.
     let onSelect: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
 
     @State private var inviteJid = ""
     @State private var editingName = false
@@ -40,42 +39,19 @@ struct RoomDetailsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                headerSection
-                if !info.subject.isEmpty || info.canEditSubject { topicSection }
-                if info.iAmOwner { settingsSection }
-                inviteSection
-                participantsSection
-                if !offlineMembers.isEmpty { offlineMembersSection }
-            }
-            .navigationTitle("Room details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            #if targetEnvironment(macCatalyst)
-                                .padding(4)
-                            #endif
-                    }
-                    .accessibilityLabel("Close")
-                    .keyboardShortcut(.cancelAction)
-                    #if targetEnvironment(macCatalyst)
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .controlSize(.large)
-                    #endif
-                }
-                #if targetEnvironment(macCatalyst)
-                    .sharedBackgroundVisibility(.hidden)
-                #endif
-            }
-            .navigationDestination(item: $pendingAvatar) { url in
-                AvatarCropView(url: url) { model.setRoomAvatar(conversationId, path: $0) }
-            }
+        List {
+            headerSection
+            if !info.subject.isEmpty || info.canEditSubject { topicSection }
+            if info.iAmOwner { settingsSection }
+            inviteSection
+            participantsSection
+            if !offlineMembers.isEmpty { offlineMembersSection }
+        }
+        .navigationTitle("Room details")
+        .navigationBarTitleDisplayMode(.inline)
+        .escapeGoesBack()
+        .navigationDestination(item: $pendingAvatar) { url in
+            AvatarCropView(url: url) { model.setRoomAvatar(conversationId, path: $0) }
         }
         .onAppear {
             model.requestRoomInfo(conversationId)

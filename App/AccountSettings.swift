@@ -3,7 +3,6 @@ import UniformTypeIdentifiers
 
 struct AccountSettingsView: View {
     @EnvironmentObject var model: AppModel
-    @Binding var isPresented: Bool
     @State private var alias = ""
     @State private var newPassword = ""
     @State private var confirmPassword = ""
@@ -40,225 +39,199 @@ struct AccountSettingsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        Spacer()
-                        VStack(spacing: 10) {
-                            Menu {
-                                Button("Photo Library…", systemImage: "photo.on.rectangle") {
-                                    showPhotoPicker = true
-                                }
-                                Button("Choose Image File…", systemImage: "folder") {
-                                    showImageImporter = true
-                                }
-                            } label: {
-                                AvatarView(
-                                    jid: jid,
-                                    name: model.accountAlias.isEmpty ? jid : model.accountAlias,
-                                    isGroup: false,
-                                    size: 88,
-                                    avatarPath: model.avatars[jid],
-                                    requestAvatar: jid.isEmpty
-                                        ? nil : { model.ensureAvatar(for: jid) }
-                                )
-                                .overlay(alignment: .bottomTrailing) {
-                                    Image(systemName: "camera.fill")
-                                        .font(.caption)
-                                        .padding(6)
-                                        .background(Circle().fill(Color.accentColor))
-                                        .foregroundStyle(.white)
-                                }
+        Form {
+            Section {
+                HStack {
+                    Spacer()
+                    VStack(spacing: 10) {
+                        Menu {
+                            Button("Photo Library…", systemImage: "photo.on.rectangle") {
+                                showPhotoPicker = true
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Change account photo")
-                            Text(jid).font(.caption).foregroundStyle(.secondary)
-                            if let state = model.accounts.first?.state {
-                                Text(state.lowercased())
-                                    .font(.caption2)
-                                    .foregroundStyle(state == "CONNECTED" ? .green : .orange)
+                            Button("Choose Image File…", systemImage: "folder") {
+                                showImageImporter = true
+                            }
+                        } label: {
+                            AvatarView(
+                                jid: jid,
+                                name: model.accountAlias.isEmpty ? jid : model.accountAlias,
+                                isGroup: false,
+                                size: 88,
+                                avatarPath: model.avatars[jid],
+                                requestAvatar: jid.isEmpty
+                                    ? nil : { model.ensureAvatar(for: jid) }
+                            )
+                            .overlay(alignment: .bottomTrailing) {
+                                Image(systemName: "camera.fill")
+                                    .font(.caption)
+                                    .padding(6)
+                                    .background(Circle().fill(Color.accentColor))
+                                    .foregroundStyle(.white)
                             }
                         }
-                        Spacer()
-                    }
-                }
-                .listRowBackground(Color.clear)
-
-                Section("Status") {
-                    Picker("Availability", selection: presenceShowBinding) {
-                        ForEach(presenceOptions, id: \.0) { value, label in
-                            HStack {
-                                Circle().fill(presenceColor(value)).frame(width: 8, height: 8)
-                                Text(label)
-                            }
-                            .tag(value)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Change account photo")
+                        Text(jid).font(.caption).foregroundStyle(.secondary)
+                        if let state = model.accounts.first?.state {
+                            Text(state.lowercased())
+                                .font(.caption2)
+                                .foregroundStyle(state == "CONNECTED" ? .green : .orange)
                         }
                     }
-                    TextField("Status message (optional)", text: presenceStatusBinding)
-                        .onSubmit { savePresenceIfNeeded() }
-                    Button("Save status") { savePresenceIfNeeded() }
-                        .disabled(!presenceDirty)
+                    Spacer()
                 }
+            }
+            .listRowBackground(Color.clear)
 
-                Section("Display name") {
-                    HStack {
-                        TextField("Name shown for this account", text: $alias)
-                        if aliasSaved {
-                            Image(systemName: "checkmark").foregroundStyle(.green)
+            Section("Status") {
+                Picker("Availability", selection: presenceShowBinding) {
+                    ForEach(presenceOptions, id: \.0) { value, label in
+                        HStack {
+                            Circle().fill(presenceColor(value)).frame(width: 8, height: 8)
+                            Text(label)
                         }
+                        .tag(value)
                     }
-                    .onSubmit { saveAlias() }
-                    Button("Save name") { saveAlias() }
-                        .disabled(alias == model.accountAlias)
                 }
+                TextField("Status message (optional)", text: presenceStatusBinding)
+                    .onSubmit { savePresenceIfNeeded() }
+                Button("Save status") { savePresenceIfNeeded() }
+                    .disabled(!presenceDirty)
+            }
 
-                Section("Change password") {
-                    SecureField("New password", text: $newPassword)
-                    SecureField("Confirm new password", text: $confirmPassword)
-                    Button("Change password") {
-                        model.changePassword(newPassword)
-                        newPassword = ""
-                        confirmPassword = ""
+            Section("Display name") {
+                HStack {
+                    TextField("Name shown for this account", text: $alias)
+                    if aliasSaved {
+                        Image(systemName: "checkmark").foregroundStyle(.green)
                     }
-                    .disabled(newPassword.isEmpty || newPassword != confirmPassword)
                 }
+                .onSubmit { saveAlias() }
+                Button("Save name") { saveAlias() }
+                    .disabled(alias == model.accountAlias)
+            }
 
-                if !model.omemoFingerprint.isEmpty {
-                    Section("OMEMO") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("This device's fingerprint")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(model.omemoFingerprint)
-                                .font(.caption.monospaced())
-                                .textSelection(.enabled)
-                        }
-                        Text("Device id: \(String(model.omemoDeviceId))")
+            Section("Change password") {
+                SecureField("New password", text: $newPassword)
+                SecureField("Confirm new password", text: $confirmPassword)
+                Button("Change password") {
+                    model.changePassword(newPassword)
+                    newPassword = ""
+                    confirmPassword = ""
+                }
+                .disabled(newPassword.isEmpty || newPassword != confirmPassword)
+            }
+
+            if !model.omemoFingerprint.isEmpty {
+                Section("OMEMO") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("This device's fingerprint")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        Text(model.omemoFingerprint)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
                     }
-                }
-
-                Section {
-                    Toggle(
-                        "Typing notifications",
-                        isOn: Binding(
-                            get: { model.sendTyping },
-                            set: { model.setSendTyping($0) }))
-                    Toggle(
-                        "Read receipts",
-                        isOn: Binding(
-                            get: { model.sendMarker },
-                            set: { model.setSendMarker($0) }))
-                } header: {
-                    Text("Privacy")
-                } footer: {
-                    Text(
-                        "When off, others won't see when you're typing or that you've read their messages."
-                    )
-                }
-
-                Section {
-                    NavigationLink {
-                        BlockedContactsView().environmentObject(model)
-                    } label: {
-                        LabeledContent(
-                            "Blocked contacts",
-                            value: model.blockedContacts.isEmpty
-                                ? "" : "\(model.blockedContacts.count)")
-                    }
-                }
-
-                Section {
-                    Button(role: .destructive) {
-                        closingForSignOut = true
-                        presenceDirty = false
-                        isPresented = false
-                        model.signOut()
-                    } label: {
-                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
+                    Text("Device id: \(String(model.omemoDeviceId))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle("Account")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(action: closeSheet) {
-                        Image(systemName: "xmark")
-                            #if targetEnvironment(macCatalyst)
-                                .padding(4)
-                            #endif
-                    }
-                    .accessibilityLabel("Close")
-                    .keyboardShortcut(.cancelAction)
-                    #if targetEnvironment(macCatalyst)
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .controlSize(.large)
-                    #endif
-                }
-                #if targetEnvironment(macCatalyst)
-                    .sharedBackgroundVisibility(.hidden)
-                #endif
+
+            Section {
+                Toggle(
+                    "Typing notifications",
+                    isOn: Binding(
+                        get: { model.sendTyping },
+                        set: { model.setSendTyping($0) }))
+                Toggle(
+                    "Read receipts",
+                    isOn: Binding(
+                        get: { model.sendMarker },
+                        set: { model.setSendMarker($0) }))
+            } header: {
+                Text("Privacy")
+            } footer: {
+                Text(
+                    "When off, others won't see when you're typing or that you've read their messages."
+                )
             }
-            .sheet(isPresented: $showPhotoPicker) {
-                PhotoPicker(
-                    allowsVideos: false,
-                    pipeline: avatarSelection,
+
+            Section {
+                NavigationLink {
+                    BlockedContactsView().environmentObject(model)
+                } label: {
+                    LabeledContent(
+                        "Blocked contacts",
+                        value: model.blockedContacts.isEmpty
+                            ? "" : "\(model.blockedContacts.count)")
+                }
+            }
+
+            Section {
+                Button(role: .destructive) {
+                    closingForSignOut = true
+                    presenceDirty = false
+                    model.accountSettingsPresented = false
+                    model.signOut()
+                } label: {
+                    Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+            }
+        }
+        .navigationTitle("Account")
+        .navigationBarTitleDisplayMode(.inline)
+        .escapeGoesBack()
+        .sheet(isPresented: $showPhotoPicker) {
+            PhotoPicker(
+                allowsVideos: false,
+                pipeline: avatarSelection,
+                onPicked: { pendingAvatar = $0 },
+                onTooLarge: {
+                    model.lastError = AttachmentStaging.tooLargeMessage(noun: "image")
+                },
+                onError: { model.lastError = $0 })
+        }
+        .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.image]) { result in
+            switch result {
+            case .success(let url):
+                avatarSelection.stageImportedFile(
+                    url,
                     onPicked: { pendingAvatar = $0 },
                     onTooLarge: {
                         model.lastError = AttachmentStaging.tooLargeMessage(noun: "image")
                     },
                     onError: { model.lastError = $0 })
-            }
-            .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.image]) { result in
-                switch result {
-                case .success(let url):
-                    avatarSelection.stageImportedFile(
-                        url,
-                        onPicked: { pendingAvatar = $0 },
-                        onTooLarge: {
-                            model.lastError = AttachmentStaging.tooLargeMessage(noun: "image")
-                        },
-                        onError: { model.lastError = $0 })
-                case .failure(let error):
-                    model.lastError = error.localizedDescription
-                }
-            }
-            .navigationDestination(item: $pendingAvatar) { url in
-                AvatarCropView(url: url) { model.setAvatar(path: $0) }
-            }
-            .onAppear {
-                model.requestAccountDetails()
-                model.requestSelfPresence()
-                model.requestBlocklist()
-                model.requestPrivacy()
-                alias = model.accountAlias
-                syncPresenceFromModel()
-            }
-            .onChange(of: model.accountAlias) { _, value in
-                alias = value
-            }
-            .onChange(of: model.selfShow) { _, _ in if !presenceDirty { syncPresenceFromModel() } }
-            .onChange(of: model.selfStatus) { _, _ in if !presenceDirty { syncPresenceFromModel() }
-            }
-            .onDisappear {
-                avatarSelection.cancel()
-                if !closingForSignOut { savePresenceIfNeeded() }
-            }
-            .alert("Password changed", isPresented: $model.passwordChanged) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("Your account password was updated on the server.")
+            case .failure(let error):
+                model.lastError = error.localizedDescription
             }
         }
-    }
-
-    private func closeSheet() {
-        savePresenceIfNeeded()
-        isPresented = false
+        .navigationDestination(item: $pendingAvatar) { url in
+            AvatarCropView(url: url) { model.setAvatar(path: $0) }
+        }
+        .onAppear {
+            model.requestAccountDetails()
+            model.requestSelfPresence()
+            model.requestBlocklist()
+            model.requestPrivacy()
+            alias = model.accountAlias
+            syncPresenceFromModel()
+        }
+        .onChange(of: model.accountAlias) { _, value in
+            alias = value
+        }
+        .onChange(of: model.selfShow) { _, _ in if !presenceDirty { syncPresenceFromModel() } }
+        .onChange(of: model.selfStatus) { _, _ in if !presenceDirty { syncPresenceFromModel() }
+        }
+        .onDisappear {
+            avatarSelection.cancel()
+            if !closingForSignOut { savePresenceIfNeeded() }
+        }
+        .alert("Password changed", isPresented: $model.passwordChanged) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your account password was updated on the server.")
+        }
     }
 
     private func saveAlias() {

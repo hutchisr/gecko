@@ -80,7 +80,7 @@ final class CatalystInteractionUITests: XCTestCase {
             app.staticTexts[name].click()
             XCTAssertTrue(account.isHittable, "Selecting a chat removed the Account control")
             account.click()
-            XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 3))
+            XCTAssertTrue(app.buttons["Change account photo"].waitForExistence(timeout: 3))
             app.typeKey(XCUIKeyboardKey.escape.rawValue, modifierFlags: [])
             XCTAssertTrue(account.isHittable, "Dismissing settings removed the Account control")
         }

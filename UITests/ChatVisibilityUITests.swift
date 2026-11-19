@@ -886,7 +886,7 @@ final class ChatVisibilityUITests: XCTestCase {
         #else
             avatar.tap()
         #endif
-        XCTAssertTrue(app.buttons["Close"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Change account photo"].waitForExistence(timeout: 3))
     }
 
     #if !targetEnvironment(macCatalyst)

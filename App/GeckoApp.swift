@@ -858,16 +858,25 @@ struct RootView: View {
                             .toolbar(removing: .sidebarToggle)
                             .navigationSplitViewColumnWidth(min: 320, ideal: 340, max: 420)
                     } detail: {
-                        if let id = model.navigation.last,
-                           model.conversations.contains(where: { $0.id == id }) {
-                            ChatView(conversationId: id)
-                                .id(id)
-                        } else {
-                            ContentUnavailableView(
-                                "Select a Conversation",
-                                systemImage: "message",
-                                description: Text("Choose a conversation from the sidebar.")
-                            )
+                        // Settings and room details push over the chat here,
+                        // which keeps its draft and scroll position underneath.
+                        NavigationStack {
+                            Group {
+                                if let id = model.navigation.last,
+                                   model.conversations.contains(where: { $0.id == id }) {
+                                    ChatView(conversationId: id)
+                                        .id(id)
+                                } else {
+                                    ContentUnavailableView(
+                                        "Select a Conversation",
+                                        systemImage: "message",
+                                        description: Text("Choose a conversation from the sidebar.")
+                                    )
+                                }
+                            }
+                            .navigationDestination(isPresented: $model.accountSettingsPresented) {
+                                AccountSettingsView()
+                            }
                         }
                     }
                     .navigationSplitViewStyle(.balanced)
@@ -882,6 +891,9 @@ struct RootView: View {
                         } else {
                             ConversationListView()
                         }
+                    }
+                    .navigationDestination(isPresented: $model.accountSettingsPresented) {
+                        AccountSettingsView()
                     }
                 }
 #endif
@@ -936,6 +948,24 @@ struct RootView: View {
             ].compactMap { $0 }.joined(separator: "\n\n"))
         }
     }
+}
+
+/// Escape leaves a pushed pane, as it closed the sheet these panes replaced.
+private struct EscapeGoesBack: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content.background {
+            Button("Back") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+                .opacity(0)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+extension View {
+    func escapeGoesBack() -> some View { modifier(EscapeGoesBack()) }
 }
 
 struct AccountSetupView: View {
@@ -1236,13 +1266,6 @@ struct ConversationListView: View {
         list
         .sheet(isPresented: $model.newMessagePresented) {
             ContactsView(isPresented: $model.newMessagePresented)
-                .environmentObject(model)
-#if targetEnvironment(macCatalyst)
-                .frame(width: 560)
-#endif
-        }
-        .sheet(isPresented: $model.accountSettingsPresented) {
-            AccountSettingsView(isPresented: $model.accountSettingsPresented)
                 .environmentObject(model)
 #if targetEnvironment(macCatalyst)
                 .frame(width: 560)
@@ -1850,7 +1873,6 @@ struct ChatView: View {
     @State private var showPhotoPicker = false
     @State private var showFileImporter = false
     @State private var showOccupants = false
-    @State private var memberDMJid: String?
     @State private var showEncryptionHelp = false
     @State private var editing: ChatMessage?
     @State private var replyingTo: ChatMessage?
@@ -2903,19 +2925,11 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
         .toolbar { chatToolbar }
-        .sheet(isPresented: $showOccupants, onDismiss: {
-            // Start the DM only after the sheet has finished sliding away, so
-            // the push into the new chat reads as a distinct second step.
-            if let jid = memberDMJid {
-                memberDMJid = nil
+        .navigationDestination(isPresented: $showOccupants) {
+            RoomDetailsView(conversationId: conversationId) { jid in
+                showOccupants = false
                 model.startRoomMemberDM(conversationId, jid: jid)
             }
-        }) {
-            RoomDetailsView(conversationId: conversationId) { jid in
-                memberDMJid = jid
-                showOccupants = false
-            }
-            .environmentObject(model)
         }
         .sheet(item: $actionMsg) { m in
             reactionSheet(for: m)

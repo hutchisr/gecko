@@ -214,6 +214,8 @@ final class AppModel: ObservableObject {
     @Published var navigation: [Int32] = [] {
         didSet {
             if navigation.last != oldValue.last {
+                // An opening conversation takes the pane Settings was in.
+                accountSettingsPresented = false
                 fileTransportPreviews = [:]
                 fileTransportCompletions = [:]
                 discardLiveOnlyCache(for: navigation.last)
@@ -391,6 +393,8 @@ final class AppModel: ObservableObject {
         }
     }
     func selectConversation(_ id: Int32) {
+        // Reselecting the open conversation changes no path, so close here too.
+        accountSettingsPresented = false
         replaceNavigation(with: [id])
     }
 
