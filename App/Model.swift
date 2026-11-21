@@ -262,6 +262,8 @@ final class AppModel: ObservableObject {
     /// Set when a join targeted a room that doesn't exist yet; the UI asks the
     /// user to confirm creating it.
     @Published var pendingMucCreate: PendingMucCreate?
+    /// A room an `xmpp:` link asked to join; the UI asks before joining.
+    @Published var pendingMucJoin: String?
     @Published var pendingMucInvite: MucInvitation?
     @Published var newMessagePresented = false
     @Published var accountSettingsPresented = false
@@ -1252,6 +1254,16 @@ final class AppModel: ObservableObject {
             directChatRoute.request(
                 jid: jid,
                 matchingConversation: matchingConversation))
+    }
+
+    /// An `xmpp:` link was opened: the chat it names, or an offer to join the room.
+    func open(link: URL) {
+        guard let target = JID.link(link) else { return }
+        if target.join, !conversations.contains(where: { $0.jid == target.jid }) {
+            pendingMucJoin = target.jid
+        } else {
+            openChat(with: target.jid)
+        }
     }
 
     func addContact(jid: String, alias: String?) {

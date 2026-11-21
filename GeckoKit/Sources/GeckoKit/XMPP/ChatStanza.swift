@@ -32,6 +32,19 @@ enum JID {
         let bare = bare(jid)
         return String(bare.split(separator: "@", maxSplits: 1).last ?? Substring(bare))
     }
+
+    /// The address an `xmpp:` link names (RFC 5122), and whether it asks to
+    /// join it as a room (XEP-0147 `?join`); nil when it names no one.
+    static func link(_ url: URL) -> (jid: String, join: Bool)? {
+        guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.scheme?.lowercased() == "xmpp" else { return nil }
+        // After an authority (`xmpp://account@host/jid`) the address is the path.
+        let jid = bare(parts.path.hasPrefix("/") ? String(parts.path.dropFirst()) : parts.path).lowercased()
+        let halves = jid.split(separator: "@", omittingEmptySubsequences: false)
+        guard halves.count == 2, !halves.contains(where: \.isEmpty), !jid.contains(where: \.isWhitespace) else { return nil }
+        let action = parts.percentEncodedQuery?.split(separator: ";").first
+        return (jid, action?.lowercased() == "join")
+    }
 }
 
 /// A `<message/>` as the chat layer reads it, after unwrapping a carbon

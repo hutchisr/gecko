@@ -332,6 +332,7 @@ struct GeckoApp: App {
         RootView()
             .overlay { CallView() }
             .environmentObject(model)
+            .onOpenURL { model.open(link: $0) }
             .onAppear {
                 AttachmentExport.removeStaleTemporaryDirectories()
                 model.boot()
@@ -947,6 +948,28 @@ struct RootView: View {
                 invitation.failureMessage,
             ].compactMap { $0 }.joined(separator: "\n\n"))
         }
+        // Joining shows us to the room, so a link only asks.
+        .alert("Join channel?", isPresented: Binding(
+            get: { model.pendingMucJoin != nil },
+            set: { if !$0 { model.pendingMucJoin = nil } }
+        ), presenting: model.pendingMucJoin) { room in
+            Button("Join") { model.joinMuc(jid: room, nick: nil) }
+            Button("Cancel", role: .cancel) {}
+        } message: { room in
+            Text(room)
+        }
+        .alert("Create channel?", isPresented: Binding(
+            get: { model.pendingMucCreate != nil },
+            set: { if !$0 { model.pendingMucCreate = nil } }
+        ), presenting: model.pendingMucCreate) { pending in
+            Button("Create") {
+                model.createMuc(jid: pending.jid, nick: pending.nick)
+                model.pendingMucCreate = nil
+            }
+            Button("Cancel", role: .cancel) { model.pendingMucCreate = nil }
+        } message: { pending in
+            Text("\(pending.jid) doesn't exist yet. Create it as a new channel?")
+        }
     }
 }
 
@@ -1282,18 +1305,6 @@ struct ConversationListView: View {
                 mucNick = ""
             }
             Button("Cancel", role: .cancel) {}
-        }
-        .alert("Create channel?", isPresented: Binding(
-            get: { model.pendingMucCreate != nil },
-            set: { if !$0 { model.pendingMucCreate = nil } }
-        ), presenting: model.pendingMucCreate) { pending in
-            Button("Create") {
-                model.createMuc(jid: pending.jid, nick: pending.nick)
-                model.pendingMucCreate = nil
-            }
-            Button("Cancel", role: .cancel) { model.pendingMucCreate = nil }
-        } message: { pending in
-            Text("\(pending.jid) doesn't exist yet. Create it as a new channel?")
         }
     }
 }

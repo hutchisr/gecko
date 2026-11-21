@@ -73,6 +73,23 @@ final class ChatStanzaTests: XCTestCase {
         XCTAssertEqual(back?.requestsReceipt, true)
         XCTAssertEqual(back?.markable, true)
     }
+
+    func testReadsXMPPLinks() throws {
+        func link(_ text: String) -> String? {
+            URL(string: text).flatMap(JID.link).map { "\($0.jid) \($0.join ? "join" : "chat")" }
+        }
+        XCTAssertEqual(link("xmpp:Friend@Example.org"), "friend@example.org chat")
+        XCTAssertEqual(link("xmpp:friend@example.org/phone?message;body=hi"), "friend@example.org chat")
+        XCTAssertEqual(link("xmpp:room@muc.example.org?join"), "room@muc.example.org join")
+        XCTAssertEqual(link("xmpp:room@muc.example.org?join;password=secret"), "room@muc.example.org join")
+        XCTAssertEqual(link("xmpp:two%20words%23@example.org"), nil, "a space is in no address")
+        XCTAssertEqual(link("xmpp:caf%C3%A9@example.org"), "café@example.org chat")
+        XCTAssertEqual(link("xmpp://me@example.org/room@muc.example.org?join"), "room@muc.example.org join",
+                       "an authority names the account to use, not who to talk to")
+        XCTAssertNil(link("xmpp://me@example.org"))
+        XCTAssertNil(link("xmpp:example.org"), "a server is no one to chat with")
+        XCTAssertNil(link("https://friend@example.org"))
+    }
 }
 
 final class StoreQueriesTests: XCTestCase {

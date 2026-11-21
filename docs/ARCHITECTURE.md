@@ -28,6 +28,10 @@ Verified against real servers (xmpp.is) with the live two-account script
 * One-to-one voice calls while the app is open.
 * First launch after a Dino-based build imports `dino.db` and `omemo.db`
   (history, keys, trust, passwords) into the Swift store (`DinoImport`).
+* `xmpp:` links (RFC 5122): Gecko is registered for the scheme on iOS and the
+  Mac. A link opens the chat it names; `?join` (XEP-0147) asks before joining
+  the room, since joining shows us to it. Other query actions and their
+  parameters (a message body, a room password) are ignored.
 
 Not done: video and group calls, ringing while closed (CallKit, VoIP push),
 OpenPGP, OMEMO 2, and device checks of the notification extension's
