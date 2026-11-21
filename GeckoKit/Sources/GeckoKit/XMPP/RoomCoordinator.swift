@@ -325,10 +325,9 @@ final class RoomCoordinator {
                           "conversation": room.conversation])
                 }
                 if presence.codes.contains(201) {
-                    // We created it: accept the default configuration (an instant room).
-                    links[room.account]?.request(StanzaNode(
-                        "iq", XMPPNS.client, ["type": "set", "to": room.jid, "id": "instant-\(UUID().uuidString)"],
-                        [StanzaNode("query", MUCNS.owner, [:], [StanzaNode("x", "jabber:x:data", ["type": "submit"])])])) { _ in }
+                    // We created it: unlock it with the server's defaults, but kept
+                    // (an instant room is temporary and is gone once we go offline).
+                    configure(room.conversation, ["muc#roomconfig_persistentroom": "1"])
                 }
                 catchUp(room)
                 emitInfo(room)

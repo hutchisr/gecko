@@ -103,4 +103,34 @@ final class MUCTests: XCTestCase {
         XCTAssertTrue(rooms.message(message, account: "me@example.org"))
         XCTAssertEqual(askedFor.count, 1)
     }
+
+    /// A room we create is kept: an instant one is temporary and is destroyed
+    /// as soon as we go offline.
+    @MainActor
+    func testCreatedRoomIsMadePersistent() throws {
+        let store = try GeckoStore(path: nil)
+        try store.addAccount("me@example.org", resource: "gecko")
+        let rooms = RoomCoordinator(store: store, emit: { _ in }, changed: { _, _ in })
+        let form = parse("""
+            <iq xmlns='jabber:client' type='result'><query xmlns='http://jabber.org/protocol/muc#owner'>
+              <x xmlns='jabber:x:data' type='form'>
+                <field var='muc#roomconfig_roomname'><value>Room</value></field>
+                <field var='muc#roomconfig_persistentroom' type='boolean'><value>0</value></field></x></query></iq>
+            """)
+        var submitted: [String: String] = [:]
+        rooms.connected("me@example.org", link: .init(send: { _ in }, request: { iq, reply in
+            guard let query = iq.child("query", MUCNS.owner) else { return }
+            if iq["type"] == "get" { return reply(form) }
+            for field in query.child("x", "jabber:x:data")?.children("field", "jabber:x:data") ?? [] {
+                submitted[field["var"] ?? ""] = field.child("value", "jabber:x:data")?.text
+            }
+        }))
+        rooms.join("me@example.org", "room@muc.example.org", nick: "me", password: nil)
+        XCTAssertTrue(rooms.presence(parse("""
+            <presence xmlns='jabber:client' from='room@muc.example.org/me'>
+              <x xmlns='http://jabber.org/protocol/muc#user'><item affiliation='owner' role='moderator'/>
+                <status code='110'/><status code='201'/></x></presence>
+            """)))
+        XCTAssertEqual(submitted, ["muc#roomconfig_roomname": "Room", "muc#roomconfig_persistentroom": "1"])
+    }
 }
