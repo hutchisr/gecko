@@ -15,6 +15,7 @@ struct RoomDetailsView: View {
     @State private var nameDraft = ""
     @State private var topicDraft = ""
     @State private var showPhotoPicker = false
+    @State private var showImageImporter = false
     @StateObject private var avatarSelection = AttachmentSelectionPipeline()
     /// A picked image waiting to be framed.
     @State private var pendingAvatar: URL?
@@ -77,6 +78,20 @@ struct RoomDetailsView: View {
                 },
                 onError: { model.lastError = $0 })
         }
+        .fileImporter(isPresented: $showImageImporter, allowedContentTypes: [.image]) { result in
+            switch result {
+            case .success(let url):
+                avatarSelection.stageImportedFile(
+                    url,
+                    onPicked: { pendingAvatar = $0 },
+                    onTooLarge: {
+                        model.lastError = AttachmentStaging.tooLargeMessage(noun: "image")
+                    },
+                    onError: { model.lastError = $0 })
+            case .failure(let error):
+                model.lastError = error.localizedDescription
+            }
+        }
         .onDisappear {
             avatarSelection.cancel()
         }
@@ -94,8 +109,13 @@ struct RoomDetailsView: View {
         Section {
             HStack(spacing: 12) {
                 if info.iAmOwner {
-                    Button {
-                        showPhotoPicker = true
+                    Menu {
+                        Button("Photo Library…", systemImage: "photo.on.rectangle") {
+                            showPhotoPicker = true
+                        }
+                        Button("Choose Image File…", systemImage: "folder") {
+                            showImageImporter = true
+                        }
                     } label: {
                         avatar.overlay(alignment: .bottomTrailing) {
                             Image(systemName: "camera.fill")
